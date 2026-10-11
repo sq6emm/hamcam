@@ -5,9 +5,8 @@ for (const mode of ['webrtc', 'mse']) {
   const b = await puppeteer.launch({ executablePath: process.env.CHROME, headless: 'new', args: ['--no-sandbox', `--user-data-dir=/tmp/p-${mode}`, '--autoplay-policy=no-user-gesture-required'] });
   const p = await b.newPage(); const errs = []; p.on('pageerror', e => errs.push(e.message));
   if (mode === 'mse') await p.evaluateOnNewDocument(() => { window.RTCPeerConnection = undefined; });
-  // expose the module-scoped value for the test only: wrap setInterval callbacks is overkill -> read via a tiny hook
   await p.evaluateOnNewDocument(() => { window.__hook = true; });
-  await p.goto('process.argv[2] || "http://127.0.0.1:8097/"', { waitUntil: 'load' });
+  await p.goto(process.argv[2] || 'http://127.0.0.1:8097/', { waitUntil: 'load' });
   const samples = [];
   for (let i = 0; i < 6; i++) {
     await new Promise(r => setTimeout(r, 2500));
