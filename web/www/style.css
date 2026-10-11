@@ -42,3 +42,5 @@ ham-video video { object-fit: fill; }
 #frame.ctl { cursor: crosshair; }
 #bar input { background: #0d1117; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px; padding: 4px 8px; font: inherit; width: 13em; }
 #bar input:focus { outline: none; border-color: var(--accent); }
+#bar a.title { color: var(--fg); text-decoration: none; }
+#bar a.title:hover { color: var(--accent); text-decoration: underline; }

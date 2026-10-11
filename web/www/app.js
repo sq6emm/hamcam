@@ -53,7 +53,6 @@ try {                                                    // the viewer's own cho
   for (const k of LAYER_NAMES) if (enabled(k) && k in saved) layers[k] = !!saved[k];
 } catch { /* no storage */ }
 document.title = `${ST.call} ${DISP.title || 'antenna cam'}`;
-document.querySelector('#bar .title').textContent = `${ST.call} · ${DISP.title || 'antenna cam'}`;
 async function loadBeacons() {
   try {
     const get = (on, u) => on ? fetch(u, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve({ beacons: [], summits: [] });
@@ -457,6 +456,7 @@ $('frame').addEventListener('click', ev => {
 // ---------- rotator control: click-to-point and tracking (only for allowed networks; the server enforces it) ----------
 let ctlOn = false, track = null;                       // track: {type: 'plane'|'sat', key, name, since}
 const wrap360 = a => ((a % 360) + 360) % 360;
+const deg = v => `${+v.toFixed(2)}°`;                  // up to 0.01 deg, no trailing zeros
 async function ctl(body) {
   try {
     const r = await fetch('telemetry/control', { method: 'POST', cache: 'no-store',
@@ -490,7 +490,7 @@ function controlClick(x, y) {
   const t = best || { ...camera.unproject(x, y), name: null };
   gotoName = t.name;
   ctl({ cmd: 'goto', az: wrap360(t.az - cfg.azOff), el: t.el })
-    .then(r => r && flash(`Rotator → ${t.name ? t.name + ' ' : ''}${wrap360(t.az).toFixed(1)}° / ${t.el.toFixed(1)}°`));
+    .then(r => r && flash(`Rotator → ${t.name ? t.name + ' ' : ''}${deg(wrap360(t.az))} / ${deg(t.el)}`));
 }
 
 // tracking: current (real-time, not video-delayed) az/el of the target, sent every 2 s; the server moves the
@@ -507,7 +507,7 @@ async function pointTo(text) {
   const s = text.trim();
   if (!s) return;
   let az, el = 0, name = null, info = '';
-  const m = s.match(/^(\d{1,3}(?:[.,]\d+)?)(?:\s*[\/ ]\s*(-?\d{1,2}(?:[.,]\d+)?))?$/);
+  const m = s.match(/^(\d{1,3}(?:[.,]\d{1,2})?)(?:\s*[\/ ]\s*(-?\d{1,2}(?:[.,]\d{1,2})?))?$/);   // az[/el], up to 0.01 deg
   if (m) {
     az = parseFloat(m[1].replace(',', '.')); el = m[2] ? parseFloat(m[2].replace(',', '.')) : 0;
     if (!(az >= 0 && az <= 360)) { flash('Azimuth must be 0–360°'); return; }
@@ -525,7 +525,7 @@ async function pointTo(text) {
   }
   track = null;
   const r = await ctl({ cmd: 'goto', az: wrap360(az - cfg.azOff), el });
-  if (r) { gotoName = name; flash(`Rotator → ${info ? info + ' · ' : ''}${wrap360(az).toFixed(1)}° / ${el.toFixed(0)}°`, 4000); }
+  if (r) { gotoName = name; flash(`Rotator → ${info ? info + ' · ' : ''}${deg(wrap360(az))} / ${deg(el)}`, 4000); }
 }
 $('gotoIn').addEventListener('keydown', e => { if (e.key === 'Enter') { pointTo(e.target.value); e.target.select(); } });
 
@@ -562,7 +562,7 @@ function drawCtl(az) {
   const ey = camera.project(yaw, tele.target_el ?? 0).y;
   if (ey > 110 && ey < H - 10) el('path', { d: `M${bx - 52} ${ey - 9} L${bx - 52} ${ey + 9} L${bx - 36} ${ey} Z`, fill: col }, g);
   const txt = tele.tracking ? `tracking ${tele.tracking}`
-    : `→ ${gotoName ? gotoName + ' ' : ''}${wrap360(tAz).toFixed(0)}° / ${(tele.target_el ?? 0).toFixed(0)}°`;
+    : `→ ${gotoName ? gotoName + ' ' : ''}${deg(wrap360(tAz))} / ${deg(tele.target_el ?? 0)}`;
   el('rect', { x: bx - txt.length * 7.5 - 10, y: 192, width: txt.length * 15 + 20, height: 34, rx: 6, class: 'panel' }, g);
   label(g, bx, 218, txt, col, 'middle');
 }

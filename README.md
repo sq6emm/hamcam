@@ -97,7 +97,7 @@ re-reads it on its next refresh).
   - orientation: `pitch`, `roll` (at the image centre), `az_offset` (true azimuth of the image centre − rotator azimuth),
     `tilt` (`A`, `B`, `ref_az`: mast tilt, from `tools/tilt/tilt_calib.py`)
   - `az_delay`: how much the video lags the rotator readout (s); `boresight`: antenna direction in the frame (fractions)
-- `display`: `title` (shown after the call sign), `layers` – per layer `weather`, `beacons`, `poi`, `summits`,
+- `display`: `title` (browser tab title, after the call sign), `layers` – per layer `weather`, `beacons`, `poi`, `summits`,
   `planes`, `sky`, `sats`, `hamsats`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
   no data loaded); `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
   station, for ADS-B GPS altitudes), `adsb_max_km`.

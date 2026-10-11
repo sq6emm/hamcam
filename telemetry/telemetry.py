@@ -406,11 +406,11 @@ async def rotctl(cmd: str) -> str:
 
 
 async def point(az: float, el: float) -> str:
-    az = az % 360.0
-    el = min(max(el, ROT_EL_MIN), ROT_EL_MAX)
-    reply = await rotctl(f"P {az:.1f} {el:.1f}")
+    az = round(az % 360.0, 2) % 360.0
+    el = round(min(max(el, ROT_EL_MIN), ROT_EL_MAX), 2)
+    reply = await rotctl(f"P {az:.2f} {el:.2f}")       # 0.01 deg; GS-232 controllers use whole degrees
     control.update(last_cmd=(az, el), last_t=time.time())
-    state.update(target_az=round(az, 1), target_el=round(el, 1))
+    state.update(target_az=round(az, 2), target_el=round(el, 2))
     return reply
 
 
