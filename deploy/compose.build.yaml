@@ -1,0 +1,12 @@
+# Build the hamcam images from source instead of pulling them:
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# HAMCAM_SRC = repository checkout (default: the parent of this deploy/ directory)
+services:
+  telemetry:
+    build:
+      context: ${HAMCAM_SRC:-..}
+      dockerfile: telemetry/Dockerfile
+  web:
+    build:
+      context: ${HAMCAM_SRC:-..}
+      dockerfile: web/Dockerfile

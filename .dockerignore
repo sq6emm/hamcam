@@ -1,0 +1,7 @@
+# whitelist: only what the images need (keeps GIS / measurement data out of the build context)
+*
+!web/www
+!web/nginx.conf.template
+!telemetry/telemetry.py
+!deploy/objects.json
+web/www/analysis

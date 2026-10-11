@@ -15,21 +15,29 @@ ADS-B receiver aircraft.json --> nginx --> browser
 | Page and overlay (camera model, projection, layers) | `web/www` | `hamcam-web` (nginx, port 8097) |
 | Telemetry: rotator 10 Hz, weather, beacons, TLEs, summits | `telemetry/` | `hamcam-telemetry` |
 | Video passthrough (no transcoding) | – | `hamcam-go2rtc` (WebRTC on 8556) |
-| Deployment templates | `deploy/` | – |
+| Deployment: compose files, go2rtc config, example `objects.json`, `.env.example` | `deploy/` | – |
 | Calibration and test tools | `tools/` | run ad hoc in containers |
 
 ## Deploy
 
+Images are built by GitHub Actions and published to GitHub Container Registry (linux/amd64 and linux/arm64):
+`ghcr.io/sq6emm/hamcam-telemetry` and `ghcr.io/sq6emm/hamcam-web` (tags: `latest`, `sha-…`, release versions).
+
 ```
-git clone git@github.com:sq6emm/hamcam.git /data/claude/hamcam
-mkdir -p /etc/docker-compose/hamcam/config
-cp deploy/compose.yaml deploy/go2rtc.yaml deploy/nginx.conf.template /etc/docker-compose/hamcam/
-cp deploy/objects.json /etc/docker-compose/hamcam/config/objects.json      # then set your station/camera/POIs
-cp deploy/.env.example /etc/docker-compose/hamcam/.env && chmod 600 /etc/docker-compose/hamcam/.env   # fill in
-cd /etc/docker-compose/hamcam && docker compose up -d
+mkdir -p /etc/docker-compose/hamcam/config && cd /etc/docker-compose/hamcam
+base=https://raw.githubusercontent.com/sq6emm/hamcam/main/deploy
+curl -O $base/compose.yaml -O $base/go2rtc.yaml -o .env $base/.env.example
+curl -o config/objects.json $base/objects.json
+chmod 600 .env        # fill in .env, then set your station, camera model and POIs in config/objects.json
+mkdir -p data         # persistent data (HAMCAM_DATA); must be writable by HAMCAM_UID:HAMCAM_GID
+docker compose up -d  # page on http://<host>:8097/
 ```
 
-`deploy/` mirrors the live configuration in /etc/docker-compose/hamcam (without `.env`).
+To build from source instead: clone the repository and run
+`docker compose -f deploy/compose.yaml -f deploy/compose.build.yaml up -d --build` (or set `HAMCAM_SRC` when the
+compose files live elsewhere).
+
+`deploy/` mirrors a live configuration (SQ6EMM's, without `.env`): `objects.json` is a working example to adapt.
 
 ## Calibration tools (`tools/`)
 
@@ -45,18 +53,21 @@ All configuration is in **/etc/docker-compose/hamcam/**:
 | `compose.yaml` | the stack (go2rtc, telemetry, web) |
 | `.env` | network, equipment, credentials (chmod 600; not visible inside the containers) |
 | `go2rtc.yaml` | stream settings; camera URLs and WebRTC addresses come from `.env` |
-| `nginx.conf.template` | page routing; the ADS-B address comes from `.env` |
+| `compose.build.yaml` | optional: build the images from source |
 | `config/objects.json` | station location, camera/lens model, display values, POIs (served at `/objects.json`) |
 
-Code and data stay in **/data/claude/hamcam/** (`web/www` page, `telemetry/` service source, `telemetry/data/` persistent
+Code (`web/`, `telemetry/`, `tools/`) is in the repository and in the images; persistent data in `HAMCAM_DATA` (beacon/TLE/summit
 lists, `tools/`). Apply a change: `cd /etc/docker-compose/hamcam && docker compose up -d` (after editing `.env`,
-`compose.yaml`, `go2rtc.yaml` or the nginx template); `objects.json` only needs a page reload (the telemetry service
+`compose.yaml` or `go2rtc.yaml`); `objects.json` only needs a page reload (the telemetry service
 re-reads it on its next refresh).
 
 ## `.env` – network, equipment, credentials (chmod 600, never published)
 
 | Variable | Used by | Meaning |
 |---|---|---|
+| `HAMCAM_VERSION` | compose | image tag (`latest` or a release such as `v1.0.0`) |
+| `HAMCAM_DATA`, `HAMCAM_UID`, `HAMCAM_GID` | telemetry | persistent data directory and the uid:gid that writes it |
+| `HAMCAM_WEB_PORT` | web | host port of the page (8097) |
 | `CAMERA_MAIN_URL` | go2rtc | RTSP URL of the camera main stream, incl. user/password (required) |
 | `CAMERA_SUB_URL` | go2rtc | RTSP URL of the sub stream (optional) |
 | `WEBRTC_CANDIDATE_LAN` | go2rtc | `host:port` LAN viewers connect to for WebRTC media (e.g. `192.168.12.12:8556`) |
@@ -79,7 +90,9 @@ re-reads it on its next refresh).
   - orientation: `pitch`, `roll` (at the image centre), `az_offset` (true azimuth of the image centre − rotator azimuth),
     `tilt` (`A`, `B`, `ref_az`: mast tilt, from `tools/tilt/tilt_calib.py`)
   - `az_delay`: how much the video lags the rotator readout (s); `boresight`: antenna direction in the frame (fractions)
-- `display`: `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
+- `display`: `title` (shown after the call sign), `layers` – per layer `weather`, `beacons`, `poi`, `summits`,
+  `planes`, `sky`, `sats`, `hamsats`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
+  no data loaded); `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
   station, for ADS-B GPS altitudes), `adsb_max_km`.
 - `objects`: your own points – `landmark` (with `lat`, `lon`, `h` = top height ASL) or `radio` (`locator`); add/remove freely.
 
@@ -96,3 +109,9 @@ Lens model and roll (`tools/calib/distortion.py`), pitch / `az_offset` (a known 
 `az_delay` and `video_lag_s` (browser timing test), mast tilt (`tools/tilt/`). The older one-off scripts in
 `tools/calib/` (drift/speed tests, encoder monitor) still contain this site's addresses. Tools that read the
 camera model mount `/etc/docker-compose/hamcam/config` as `/www`.
+
+## License
+
+hamcam is licensed under the **PolyForm Noncommercial License 1.0.0** (`LICENSE.md`): free to use, modify and share for
+any noncommercial purpose (amateur radio, personal, research, education, clubs and other noncommercial organisations).
+Commercial use is not permitted. Bundled third-party libraries keep their own (MIT) licenses, see `THIRD-PARTY.md`.

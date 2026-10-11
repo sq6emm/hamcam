@@ -43,12 +43,21 @@ scene.objects.forEach(placeObject);
 // beacons (IARU list, merged daily) and SOTA summits visible from the station: computed by the telemetry service, re-fetched hourly
 const fixedObjects = scene.objects.slice();
 const beaconsNow = () => scene.objects.filter(o => o.kind === 'beacon'), summitsNow = () => scene.objects.filter(o => o.kind === 'summit');
-const layers = { beacons: true, poi: true, summits: true, planes: true, sky: true, sats: true, hamsats: true };
-try { Object.assign(layers, JSON.parse(localStorage.getItem('hamcam.layers') || '{}')); } catch { /* no storage */ }
+// layers: objects.json display.layers.<name> = "on" (shown) | "off" (button, hidden at start) | "disabled" (no button, no data)
+const LAYER_NAMES = ['weather', 'beacons', 'poi', 'summits', 'planes', 'sky', 'sats', 'hamsats'];
+const layerMode = k => (DISP.layers || {})[k] ?? 'on';
+const enabled = k => layerMode(k) !== 'disabled';
+const layers = Object.fromEntries(LAYER_NAMES.map(k => [k, layerMode(k) === 'on']));
+try {                                                    // the viewer's own choice (per browser) wins, except for disabled layers
+  const saved = JSON.parse(localStorage.getItem('hamcam.layers') || '{}');
+  for (const k of LAYER_NAMES) if (enabled(k) && k in saved) layers[k] = !!saved[k];
+} catch { /* no storage */ }
+document.title = `${ST.call} ${DISP.title || 'antenna cam'}`;
+document.querySelector('#bar .title').textContent = `${ST.call} · ${DISP.title || 'antenna cam'}`;
 async function loadBeacons() {
   try {
-    const [d, sm] = await Promise.all(['telemetry/beacons', 'telemetry/summits']
-      .map(u => fetch(u, { cache: 'no-store' }).then(r => r.json()).catch(() => null)));
+    const get = (on, u) => on ? fetch(u, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve({ beacons: [], summits: [] });
+    const [d, sm] = await Promise.all([get(enabled('beacons'), 'telemetry/beacons'), get(enabled('summits'), 'telemetry/summits')]);
     scene.objects = [...fixedObjects,
       ...(d ? d.beacons.map(b => placeObject({ ...b, kind: 'beacon' })) : beaconsNow()),
       ...(sm ? sm.summits.map(s => placeObject({ ...s, kind: 'summit' })) : summitsNow())];
@@ -249,6 +258,7 @@ const VIDEO_LAG = DISP.video_lag_s ?? 0.45;         // camera -> browser (s): sh
 const ADSB_KM = num('adsbkm', DISP.adsb_max_km ?? 60);   // farther aircraft are not visible in the picture anyway
 let planes = [];
 async function pollAdsb() {
+  if (!enabled('planes')) return;
   try {
     const d = await fetch('adsb/aircraft.json', { cache: 'no-store' }).then(r => r.json());
     planes = d.aircraft.filter(p => p.lat != null && p.seen_pos < 20 && p.alt_baro !== 'ground'
@@ -314,7 +324,8 @@ const SAT = { sats: { url: 'telemetry/tle/visual', col: '#f0abfc', recs: [] },
               hamsats: { url: 'telemetry/tle/amateur', col: '#fdba74', recs: [] } };
 const OBS_GD = { latitude: ST.lat * D2R, longitude: ST.lon * D2R, height: ST.h / 1000 };
 async function loadTle() {
-  for (const g of Object.values(SAT)) {
+  for (const [key, g] of Object.entries(SAT)) {
+    if (!enabled(key)) continue;
     try {
       const L = (await fetch(g.url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })).split(/\r?\n/);
       const recs = [];
@@ -414,13 +425,15 @@ $('frame').addEventListener('click', ev => {
 $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.classList.toggle('on'); };
 // layer switches (remembered per browser)
 const LAYER_OF = { beacon: 'beacons', radio: 'beacons', landmark: 'poi', summit: 'summits' };
-for (const [k, btn] of Object.entries({ beacons: 'lyBeacons', poi: 'lyPoi', summits: 'lySummits', planes: 'lyPlanes',
+for (const [k, btn] of Object.entries({ weather: 'lyWx', beacons: 'lyBeacons', poi: 'lyPoi', summits: 'lySummits', planes: 'lyPlanes',
                                          sky: 'lySky', sats: 'lySats', hamsats: 'lyHam' })) {
+  if (!enabled(k)) { $(btn).hidden = true; continue; }
   $(btn).classList.toggle('on', layers[k]);
   $(btn).onclick = () => {
     layers[k] = !layers[k]; $(btn).classList.toggle('on', layers[k]);
     try { localStorage.setItem('hamcam.layers', JSON.stringify(layers)); } catch { /* private mode */ }
     if (shownAz != null) { drawMarks(shownAz); drawPlanes(shownAz); drawSats(shownAz); }
+    showWeather(lastWx);
   };
 }
 $('hudToggle').classList.add('on');
@@ -487,8 +500,10 @@ function setLines(gid, lines, dy = 34) {
   }));
 }
 
+let lastWx = null;
 function showWeather(wx) {
-  if (!wx || typeof wx !== 'object') { setLines('wx', []); return; }
+  lastWx = wx;
+  if (!layers.weather || !wx || typeof wx !== 'object') { setLines('wx', []); return; }
   // fields are picked server-side (WEATHER_FIELDS): {name: {value, unit}}
   const v = k => wx[k] && wx[k].value;
   const lines = [];
@@ -500,7 +515,8 @@ function showWeather(wx) {
     if (v('gust') != null) lines.push(`gust ${v('gust').toFixed(1)} m/s`);
   }
   setLines('wx', lines);
-  $('wx').querySelector('text').setAttribute('y', H - 70 - (lines.length - 1) * 34);   // bottom-right, grows upwards
+  const t = $('wx').querySelector('text');             // bottom-right corner, grows upwards
+  t.setAttribute('x', W - 14); t.setAttribute('y', H - 14 - (lines.length - 1) * 34);
 }
 
 function connectTelemetry() {

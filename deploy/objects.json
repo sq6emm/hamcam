@@ -84,9 +84,20 @@
   "_beacons_note": "23 cm beacons come from /telemetry/beacons (IARU list, merged daily by the telemetry service; dropped only when QRT or unreported > 90 days)",
   "_summits_note": "SOTA summits come from /telemetry/summits (computed by the telemetry service from the station location; SOTA_ASSOCIATIONS / SUMMIT_MAX_KM in .env)",
   "display": {
-    "_comment": "video_lag_s: camera->browser latency (aircraft/satellite positions are shown for that moment); geoid_n_m: geoid height above WGS84 at the station (ADS-B GPS altitude is ellipsoidal); adsb_max_km: farther aircraft are hidden (?adsbkm= overrides)",
+    "_comment": "title: shown after the call sign in the bar; layers.<name>: \"on\" (shown) | \"off\" (button, hidden at start) | \"disabled\" (no button, data not loaded). video_lag_s: camera->browser latency (aircraft/satellite positions are shown for that moment); geoid_n_m: geoid height above WGS84 at the station (ADS-B GPS altitude is ellipsoidal); adsb_max_km: farther aircraft are hidden (?adsbkm= overrides)",
     "video_lag_s": 0.45,
     "geoid_n_m": 40,
-    "adsb_max_km": 60
+    "adsb_max_km": 60,
+    "title": "antenna cam",
+    "layers": {
+      "weather": "on",
+      "beacons": "on",
+      "poi": "on",
+      "summits": "on",
+      "planes": "on",
+      "sky": "on",
+      "sats": "on",
+      "hamsats": "on"
+    }
   }
 }

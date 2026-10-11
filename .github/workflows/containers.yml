@@ -1,0 +1,68 @@
+# Build the hamcam images and publish them to GitHub Container Registry:
+#   ghcr.io/sq6emm/hamcam-telemetry, ghcr.io/sq6emm/hamcam-web  (linux/amd64 + linux/arm64)
+# Tags: latest (main), sha-<short>, and <version> / <major>.<minor> for release tags v*.
+name: containers
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "web/**"
+      - "telemetry/**"
+      - "deploy/objects.json"
+      - ".dockerignore"
+      - ".github/workflows/containers.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - "telemetry/**"
+      - ".github/workflows/containers.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [telemetry, web]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/hamcam-${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}

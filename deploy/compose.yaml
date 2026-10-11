@@ -1,14 +1,14 @@
-# hamcam: camera passthrough via go2rtc (WebRTC, MSE fallback) + browser-side HUD.
-# Configuration lives here (/etc/docker-compose/hamcam): this file, .env, go2rtc.yaml, nginx.conf.template, config/objects.json.
-# Code and data live in ${HAMCAM_DIR} (default /data/claude/hamcam): page, telemetry source, persistent data, tools. See README.md.
-# Page: http://192.168.12.12:8097/  (public: https://sq6emm.hamradio.pl/camera/ via front proxy)
-name: hamcam-proto
+# hamcam: antenna camera with a calibrated overlay - https://github.com/sq6emm/hamcam
+#   go2rtc (camera -> WebRTC), telemetry (rotator, weather, beacons, TLEs, summits), web (page + overlay).
+# This directory holds the configuration: this file, .env (from .env.example), go2rtc.yaml, config/objects.json.
+# Images come from GitHub Container Registry; to build from source add:  -f compose.build.yaml
+name: hamcam
 
 x-common: &common
   restart: unless-stopped
   labels:
-    owner: claude
     project: hamcam
+    owner: ${HAMCAM_OWNER:-hamcam}
 
 services:
   go2rtc:
@@ -23,17 +23,16 @@ services:
     volumes:
       - ./go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:
-      - "8556:8556/tcp"     # WebRTC media (TCP fallback)
-      - "8556:8556/udp"     # WebRTC media
-      - "127.0.0.1:8557:8554/tcp"  # RTSP restream for local tools (calibration)
+      - "8556:8556/tcp"                  # WebRTC media (TCP fallback)
+      - "8556:8556/udp"                  # WebRTC media
+      - "127.0.0.1:8557:8554/tcp"        # RTSP restream for local tools (calibration)
 
   telemetry:
     <<: *common
-    build: ${HAMCAM_DIR:-/data/claude/hamcam}/telemetry
-    image: hamcam-telemetry:dev
+    image: ghcr.io/sq6emm/hamcam-telemetry:${HAMCAM_VERSION:-latest}
     container_name: hamcam-telemetry
     environment:
-      ROTCTLD_HOST: ${ROTCTLD_HOST:-}      # empty -> simulated azimuth sweep
+      ROTCTLD_HOST: ${ROTCTLD_HOST:-}    # empty -> simulated azimuth sweep
       ROTCTLD_PORT: ${ROTCTLD_PORT:-4533}
       WEATHER_URL: ${WEATHER_URL:-}
       WEATHER_FIELDS: ${WEATHER_FIELDS:-}
@@ -45,21 +44,19 @@ services:
       TLE_GROUPS: ${TLE_GROUPS:-visual,amateur}
       SOTA_ASSOCIATIONS: ${SOTA_ASSOCIATIONS:-SP,OK}
       SUMMIT_MAX_KM: ${SUMMIT_MAX_KM:-250}
-    user: "1001:1001"                    # owner of ./telemetry/data on the host
+    user: "${HAMCAM_UID:-1000}:${HAMCAM_GID:-1000}"   # must be able to write HAMCAM_DATA
     volumes:
-      - ${HAMCAM_DIR:-/data/claude/hamcam}/telemetry/data:/data   # persistent beacon list, TLEs, summits
+      - ${HAMCAM_DATA:-./data}:/data     # persistent beacon list, TLEs, summits
       - ./config:/config:ro              # objects.json (directory mount: survives editors replacing the file)
 
   web:
     <<: *common
-    image: nginxinc/nginx-unprivileged:1.29-alpine
+    image: ghcr.io/sq6emm/hamcam-web:${HAMCAM_VERSION:-latest}
     container_name: hamcam-web
     environment:
       ADSB_URL: ${ADSB_URL:-http://127.0.0.1:9/none}   # aircraft.json of the ADS-B receiver (tar1090/readsb/ultrafeeder)
     volumes:
-      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro   # ${ADSB_URL} filled in at start
-      - ${HAMCAM_DIR:-/data/claude/hamcam}/web/www:/usr/share/nginx/html:ro
       - ./config:/config:ro              # objects.json, served at /objects.json
     ports:
-      - "8097:8080"
+      - "${HAMCAM_WEB_PORT:-8097}:8080"
     depends_on: [go2rtc, telemetry]
