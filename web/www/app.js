@@ -194,9 +194,13 @@ function vlabel(g, x, y, text, color, anchor = 'start') {
 }
 
 // marks on the tape (always, also for things above/below the frame) and in the picture
+// clickable things drawn this frame (rotator control): {x, y, r?, line?, az, el, name} or {..., track: {type, key, name}}
+const hits = { marks: [], planes: [], sats: [] };
+
 function drawMarks(az) {
   const g = $('marks');
   g.replaceChildren();
+  hits.marks = [];
   camera.setYaw(az + cfg.azOff);
   const items = [
     ...scene.objects.filter(o => layers[LAYER_OF[o.kind] || 'poi']).map(o => ({ ...o, color: COL[o.kind] || COL.landmark })),
@@ -224,8 +228,10 @@ function drawMarks(az) {
       const ln = el('line', { x1: p.x, y1: 110, x2: p.x, y2: H - 60, stroke: it.color, 'stroke-width': 2 }, g);
       ln.style.strokeDasharray = '4 14'; ln.style.stroke = it.color;
       vlabel(g, p.x + 16, topY(p.x + 16), `${it.name}${it.freq ? ' ' + it.freq.toFixed(3) : ''} ${it.az.toFixed(1)}° ${fmtKm(it.dist)}`, it.color, 'end');
+      hits.marks.push({ x: p.x, line: true, az: it.az, el: 0, name: it.name });   // bearing only -> horizon
       continue;
     }
+    if (p.y > 110 && p.y < H - 10) hits.marks.push({ x: p.x, y: p.y, az: it.az, el: it.el, name: it.name });
     if (it.kind === 'summit') { summits.push({ it, p }); continue; }
     const inY = p.y > 110 && p.y < H - 10;
     const y = Math.min(Math.max(p.y, 118), H - 20);
@@ -277,7 +283,7 @@ async function pollAdsb() {
     planes = d.aircraft.filter(p => p.lat != null && p.seen_pos < 20 && p.alt_baro !== 'ground'
                                     && (typeof p.alt_geom === 'number' || typeof p.alt_baro === 'number'))
       .map(p => ({
-        id: (p.flight || '').trim() || p.r || p.hex.toUpperCase(),
+        hex: p.hex, id: (p.flight || '').trim() || p.r || p.hex.toUpperCase(),
         type: p.t || '', lat: p.lat, lon: p.lon,
         h: typeof p.alt_geom === 'number' ? p.alt_geom * 0.3048 - GEOID_N : p.alt_baro * 0.3048,
         fl: typeof p.alt_baro === 'number' ? Math.round(p.alt_baro / 100) : null,
@@ -288,20 +294,26 @@ async function pollAdsb() {
 }
 pollAdsb(); setInterval(pollAdsb, 1000);
 
+// position (az, el, distance) of an aircraft at time t (s): dead-reckoned from its last ADS-B report
+function planeLook(p, t) {
+  const dt = Math.min(Math.max(t - p.t, 0), 20), s = p.v * dt;
+  const lat = p.lat + s * Math.cos(p.trk) / 111132;
+  const lon = p.lon + s * Math.sin(p.trk) / (111320 * Math.cos(lat * D2R));
+  return azElOf(ST, lat, lon, p.h + p.vz * dt);
+}
+
 function drawPlanes(az) {
   const g = $('planes');
   g.replaceChildren();
+  hits.planes = [];
   if (az == null || !layers.planes) return;
   const yaw = az + cfg.azOff;
   camera.setYaw(yaw);
   const tNow = (Date.now() + clockOffset) / 1000 - VIDEO_LAG - mseExtra;
   const shown = [], boxes = [];
+  hits.planes = [];
   for (const p of planes) {
-    // dead-reckon from the last position report to the moment the frame was taken
-    const dt = Math.min(Math.max(tNow - p.t, 0), 20), s = p.v * dt;
-    const lat = p.lat + s * Math.cos(p.trk) / 111132;
-    const lon = p.lon + s * Math.sin(p.trk) / (111320 * Math.cos(lat * D2R));
-    const { az: paz, el: pel, dist } = azElOf(ST, lat, lon, p.h + p.vz * dt);
+    const { az: paz, el: pel, dist } = planeLook(p, tNow);       // where it was when the frame was taken
     if (pel < -0.3 || dist > ADSB_KM * 1000) continue;            // below the horizon / too far to see
     if (Math.abs(((paz - yaw + 540) % 360) - 180) > cfg.hfov / 2 + 2) continue;
     const q = camera.project(paz, pel);
@@ -315,7 +327,9 @@ function drawPlanes(az) {
   for (const { p, q, dist } of shown) {
     const r = Math.max(camera.degToPx(Math.atan(25 / dist) * R2D), 18);   // box ~ aircraft size, at least 36 px
     const op = dist > ADSB_KM * 500 ? 0.55 : 1;
-    const box = el('rect', { x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r, rx: 4, fill: 'none', 'stroke-width': 2.5 }, g);
+    const tracked = track && track.type === 'plane' && track.key === p.hex;
+    hits.planes.push({ x: q.x, y: q.y, r, track: { type: 'plane', key: p.hex, name: p.id } });
+    const box = el('rect', { x: q.x - r, y: q.y - r, width: 2 * r, height: 2 * r, rx: 4, fill: 'none', 'stroke-width': tracked ? 6 : 2.5 }, g);
     box.style.stroke = PLANE_COL; box.style.opacity = op;
     const l2 = `${p.type ? p.type + ' ' : ''}${p.fl != null ? 'FL' + String(p.fl).padStart(3, '0') + ' ' : ''}${fmtKm(dist)}`;
     const wTxt = Math.max(p.id.length * 16, l2.length * 13.5) + 4;
@@ -366,6 +380,7 @@ function inShadow(eci, sunDir) {
 function drawSats(az) {
   const g = $('sats');
   g.replaceChildren();
+  hits.sats = [];
   if (az == null || !(layers.sats || layers.hamsats) || !window.satellite) return;
   const yaw = az + cfg.azOff;
   camera.setYaw(yaw);
@@ -392,7 +407,9 @@ function drawSats(az) {
           ln.style.stroke = col; ln.style.opacity = op; ln.style.strokeDasharray = '3 5';
         }
       }
-      const c = el('circle', { cx: q.x, cy: q.y, r: 7, fill: 'none', 'stroke-width': 2.5 }, g);
+      const tracked = track && track.type === 'sat' && track.key === s.rec.satnum;
+      hits.sats.push({ x: q.x, y: q.y, track: { type: 'sat', key: s.rec.satnum, name: s.name.replace(/\s+/g, ' ').slice(0, 22) } });
+      const c = el('circle', { cx: q.x, cy: q.y, r: tracked ? 12 : 7, fill: 'none', 'stroke-width': tracked ? 4 : 2.5 }, g);
       c.style.stroke = col; c.style.opacity = op;
       const name = s.name.replace(/\s+/g, ' ').slice(0, 22);
       const l2txt = `el ${l.el.toFixed(0)}° ${Math.round(l.range)} km${dark ? ' · shadow' : ''}`;
@@ -425,6 +442,7 @@ $('frame').addEventListener('click', ev => {
   const r = $('hud').getBoundingClientRect();
   const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
   if (x < 0 || x > W || y < 0 || y > H || shownAz == null) return;
+  if (ctlOn) { controlClick(x, y); return; }
   const { az, el: e } = camera.unproject(x, y);
   let near = null;
   for (const o of [...scene.objects.filter(o => o.kind !== 'radio' && o.kind !== 'beacon'), ...sky]) {
@@ -434,6 +452,89 @@ $('frame').addEventListener('click', ev => {
   probe = { t: Date.now(), x, y, az, el: e, near };
   drawProbe();
 });
+
+
+// ---------- rotator control: click-to-point and tracking (only for allowed networks; the server enforces it) ----------
+let ctlOn = false, track = null;                       // track: {type: 'plane'|'sat', key, name, since}
+const wrap360 = a => ((a % 360) + 360) % 360;
+async function ctl(body) {
+  try {
+    const r = await fetch('telemetry/control', { method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-Hamcam-Control': '1' }, body: JSON.stringify(body) });
+    if (!r.ok) { flash(`Rotator: ${(await r.text()).slice(0, 80)}`); return null; }
+    return await r.json();
+  } catch { flash('Rotator: no connection'); return null; }
+}
+fetch('telemetry/control', { cache: 'no-store' }).then(r => r.json())
+  .then(d => { if (d.allowed) $('ctl').hidden = false; }).catch(() => { /* control not available */ });
+$('ctl').onclick = () => {
+  ctlOn = !ctlOn;
+  $('ctl').classList.toggle('on', ctlOn); $('stopBtn').hidden = !ctlOn; $('frame').classList.toggle('ctl', ctlOn);
+};
+function stopNow() { track = null; ctl({ cmd: 'stop' }); flash('Rotator: STOP'); }
+$('stopBtn').onclick = stopNow;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctlOn) stopNow(); });
+
+// click: nearest drawn object (planes/satellites -> track, others -> their exact az/el), else the clicked pixel
+function controlClick(x, y) {
+  let best = null;
+  if (!$('hud').classList.contains('off')) {
+    for (const h of [...hits.planes, ...hits.sats, ...hits.marks]) {
+      const d = h.line ? (y > 100 ? Math.abs(h.x - x) : Infinity) : Math.hypot(h.x - x, h.y - y);
+      if (d < (h.line ? 14 : Math.max(28, h.r || 0)) && (!best || d < best.d)) best = { ...h, d };
+    }
+  }
+  if (best && best.track) { startTrack(best.track); return; }
+  track = null;                                          // a new target ends tracking (the server cancels it on goto)
+  const t = best || { ...camera.unproject(x, y), name: null };
+  ctl({ cmd: 'goto', az: wrap360(t.az - cfg.azOff), el: t.el })
+    .then(r => r && flash(`Rotator → ${t.name ? t.name + ' ' : ''}${wrap360(t.az).toFixed(1)}° / ${t.el.toFixed(1)}°`));
+}
+
+// tracking: current (real-time, not video-delayed) az/el of the target, sent every 2 s; the server moves the
+// rotator when the target is far enough off and ends tracking if these confirmations stop
+function trackLook(t, date) {
+  if (t.type === 'plane') { const p = planes.find(q => q.hex === t.key); return p ? planeLook(p, date / 1000) : null; }
+  for (const g of Object.values(SAT)) { const s = g.recs.find(r => r.rec.satnum === t.key); if (s) return satLook(s.rec, date); }
+  return null;
+}
+function startTrack(t) { track = { ...t, since: Date.now() }; flash(`Rotator: tracking ${t.name}`); trackTick(); }
+async function trackTick() {
+  if (!track) return;
+  const l = trackLook(track, new Date(Date.now() + clockOffset));
+  if (!l || l.el < 0) {                                  // out of ADS-B range / below the horizon / satellite set
+    const n = track.name; track = null; ctl({ cmd: 'untrack' }); flash(`Rotator: ${n} left view – tracking ended`); return;
+  }
+  const t = track;
+  const r = await ctl({ cmd: 'track', az: wrap360(l.az - cfg.azOff), el: l.el, id: String(t.key), name: t.name });
+  if (!r && track === t) track = null;
+}
+setInterval(trackTick, 2000);
+if (window.__hook) Object.assign(window, { __hits: hits,      // test hooks (set only by the browser tests)
+  __planeList: () => planes.map(p => ({ hex: p.hex, id: p.id, ...planeLook(p, (Date.now() + clockOffset) / 1000) })) });
+
+// commanded position (from the telemetry broadcast, so every viewer sees it): tape marker, elevation marker, text
+function drawCtl(az) {
+  const g = $('ctlmarks');
+  g.replaceChildren();
+  if (az == null || !tele || tele.target_az == null) return;
+  const yaw = az + cfg.azOff, tAz = tele.target_az + cfg.azOff;
+  const away = Math.abs(((tAz - yaw + 540) % 360) - 180);
+  if (!tele.tracking && away < 1) return;                // reached: nothing to show
+  const col = '#ffffff';
+  const d = ((tAz - yaw + 540) % 360) - 180;
+  if (Math.abs(d) < cfg.hfov / 2) {
+    const tx = azToX(d);
+    el('path', { d: `M${tx - 11} 100 L${tx + 11} 100 L${tx} 84 Z`, fill: 'none', 'stroke-width': 3 }, g).style.stroke = col;
+  }
+  camera.setYaw(yaw);
+  const ey = camera.project(yaw, tele.target_el ?? 0).y;
+  if (ey > 110 && ey < H - 10) el('path', { d: `M${bx - 52} ${ey - 9} L${bx - 52} ${ey + 9} L${bx - 36} ${ey} Z`, fill: col }, g);
+  const txt = tele.tracking ? `tracking ${tele.tracking}` : `→ ${wrap360(tAz).toFixed(0)}° / ${(tele.target_el ?? 0).toFixed(0)}°`;
+  el('rect', { x: bx - txt.length * 7.5 - 10, y: 192, width: txt.length * 15 + 20, height: 34, rx: 6, class: 'panel' }, g);
+  label(g, bx, 218, txt, col, 'middle');
+}
+setInterval(() => drawCtl(shownAz), 200);
 
 $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.classList.toggle('on'); };
 // layer switches (remembered per browser)
@@ -541,6 +642,7 @@ function connectTelemetry() {
       clockOffset = m.t * 1000 + (now - m.c) / 2 - now;
     } else if (m.type === 'state') {
       tele = m;
+      if (track && !m.tracking && Date.now() - track.since > 3000) track = null;
       if (m.az != null && m.rot_ok) {
         azHist.push([m.t * 1000, m.az]);
         while (azHist.length > 2 && azHist[1][0] < m.t * 1000 - 10000) azHist.shift();

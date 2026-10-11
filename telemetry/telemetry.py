@@ -11,10 +11,16 @@ Env:
   TLE_GROUPS, TLE_MAX_AGE_H    CelesTrak TLE groups (default visual,amateur) cached in TLE_DIR, served at /telemetry/tle/<group>
   OBJECTS_FILE                 objects.json with the station location (lat, lon, h ASL) - single source for the page too
   SOTA_ASSOCIATIONS, SUMMIT_MAX_KM  SOTA summits above the horizon from the station, served at /telemetry/summits
+  CONTROL_ALLOW                rotator control (click-to-point, tracking) for these client networks, comma-separated CIDRs;
+                               empty = disabled. Client IP = X-Real-IP set by the web nginx (trusted proxy aware).
+  TRACK_STEP_DEG, TRACK_MIN_INTERVAL_S, TRACK_LEASE_S  tracking: move when the target is this far off, at most this
+                               often; tracking ends when the page stops confirming it for TRACK_LEASE_S
+  ROT_EL_MIN, ROT_EL_MAX       elevation range sent to rotctld (az-only rotators ignore it)
   BEACON_MAX_KM, BEACON_KEEP_DAYS  radius from the station; the API only lists beacons reported recently, so the
                                list is kept in BEACON_FILE and a beacon is dropped only when QRT or unreported > KEEP_DAYS
 """
 import asyncio
+import ipaddress
 import json
 import math
 import os
@@ -40,6 +46,12 @@ TLE_GROUPS = [g for g in os.environ.get("TLE_GROUPS", "visual,amateur").split(",
 TLE_URL = os.environ.get("TLE_URL", "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle")
 TLE_MAX_AGE_H = float(os.environ.get("TLE_MAX_AGE_H", "12"))     # CelesTrak asks for at most a few downloads a day
 TLE_DIR = os.environ.get("TLE_DIR", "/data")
+CONTROL_ALLOW = [ipaddress.ip_network(n.strip(), strict=False) for n in os.environ.get("CONTROL_ALLOW", "").split(",") if n.strip()]
+TRACK_STEP_DEG = float(os.environ.get("TRACK_STEP_DEG", "2"))
+TRACK_MIN_INTERVAL_S = float(os.environ.get("TRACK_MIN_INTERVAL_S", "3"))
+TRACK_LEASE_S = float(os.environ.get("TRACK_LEASE_S", "10"))
+ROT_EL_MIN = float(os.environ.get("ROT_EL_MIN", "0"))
+ROT_EL_MAX = float(os.environ.get("ROT_EL_MAX", "90"))
 OBJECTS_FILE = os.environ.get("OBJECTS_FILE", "/config/objects.json")
 SOTA_ASSOCIATIONS = [a for a in os.environ.get("SOTA_ASSOCIATIONS", "SP,OK").split(",") if a]
 SUMMIT_MAX_KM = float(os.environ.get("SUMMIT_MAX_KM", "250"))
@@ -53,7 +65,7 @@ def station() -> dict:
     return {"lat": float(st["lat"]), "lon": float(st["lon"]), "h": float(st.get("h", 0))}
 
 state = {"az": None, "el": None, "rot_ok": False, "rot_src": "rotctld" if ROT_HOST else "simulated",
-         "wx": None, "wx_ts": None}
+         "wx": None, "wx_ts": None, "target_az": None, "target_el": None, "tracking": None}
 clients: set[web.WebSocketResponse] = set()
 
 
@@ -360,6 +372,112 @@ async def summit_loop() -> None:
             await asyncio.sleep(3600)
 
 
+# ---------- rotator control: click-to-point and tracking (allowed client networks only) ----------
+control = {"last_cmd": None, "last_t": 0.0, "lease": 0.0}   # last commanded (az, el), when, tracking lease end
+
+
+def client_ip(request: web.Request) -> str:
+    # set by the web nginx from the real client address (X-Forwarded-For only trusted from TRUSTED_PROXY);
+    # telemetry is not published, so only that nginx can reach it
+    return request.headers.get("X-Real-IP", "") or (request.remote or "")
+
+
+def control_allowed(ip: str) -> bool:
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(a in n for n in CONTROL_ALLOW)
+
+
+async def rotctl(cmd: str) -> str:
+    """One command on a short separate rotctld connection (the poll loop keeps its own)."""
+    if not ROT_HOST:
+        return "simulated"
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
+    try:
+        writer.write((cmd + "\n").encode())
+        await writer.drain()
+        return (await asyncio.wait_for(reader.readline(), 5)).decode(errors="replace").strip()
+    finally:
+        writer.close()
+
+
+async def point(az: float, el: float) -> str:
+    az = az % 360.0
+    el = min(max(el, ROT_EL_MIN), ROT_EL_MAX)
+    reply = await rotctl(f"P {az:.1f} {el:.1f}")
+    control.update(last_cmd=(az, el), last_t=time.time())
+    state.update(target_az=round(az, 1), target_el=round(el, 1))
+    return reply
+
+
+def off_by(a: tuple, b: tuple) -> float:
+    """angular distance (deg) between two az/el directions"""
+    daz = (a[0] - b[0] + 540) % 360 - 180
+    return math.hypot(daz * math.cos(math.radians((a[1] + b[1]) / 2)), a[1] - b[1])
+
+
+async def control_get(request: web.Request) -> web.Response:
+    return web.json_response({"allowed": control_allowed(client_ip(request))})
+
+
+async def control_post(request: web.Request) -> web.Response:
+    ip = client_ip(request)
+    # the custom header makes browsers send a CORS preflight, which is never approved: other sites cannot do this
+    if request.headers.get("X-Hamcam-Control") != "1":
+        raise web.HTTPBadRequest(text="missing X-Hamcam-Control header")
+    if not control_allowed(ip):
+        print(f"control DENIED for {ip}")
+        raise web.HTTPForbidden(text="rotator control is not allowed from this network")
+    try:
+        m = await request.json()
+        cmd = m["cmd"]
+        az, el = (float(m.get("az", 0)), float(m.get("el", 0))) if cmd in ("goto", "track") else (None, None)
+    except (ValueError, KeyError, TypeError):
+        raise web.HTTPBadRequest(text="bad request")
+    now = time.time()
+    reply = None
+    if cmd == "stop":
+        reply = await rotctl("S")
+        state["tracking"] = None
+        control["lease"] = 0
+    elif cmd == "untrack":
+        state["tracking"] = None
+        control["lease"] = 0
+    elif cmd == "goto":
+        if now - control["last_t"] < 1.0:
+            raise web.HTTPTooManyRequests(text="one command per second")
+        state["tracking"] = None
+        control["lease"] = 0
+        reply = await point(az, el)
+    elif cmd == "track":
+        name = str(m.get("name") or m.get("id") or "?")[:40]
+        new = state["tracking"] != name
+        state["tracking"] = name
+        control["lease"] = now + TRACK_LEASE_S
+        if new or (control["last_cmd"] is None) or (
+                off_by((az, el), control["last_cmd"]) >= TRACK_STEP_DEG and now - control["last_t"] >= TRACK_MIN_INTERVAL_S):
+            reply = await point(az, el)
+    else:
+        raise web.HTTPBadRequest(text="unknown cmd")
+    if reply is not None or cmd != "track":
+        print(f"control {cmd} az={az} el={el} tracking={state['tracking']} from {ip}: {reply}")
+    await broadcast(snapshot())
+    return web.json_response({"ok": True, "reply": reply, "target_az": state["target_az"], "target_el": state["target_el"],
+                              "tracking": state["tracking"]})
+
+
+async def control_watchdog() -> None:
+    # tracking needs the page to keep confirming it; when it stops (page closed, connection lost) tracking ends
+    while True:
+        await asyncio.sleep(1)
+        if state["tracking"] and time.time() > control["lease"]:
+            print(f"control: tracking {state['tracking']} ended (no confirmation for {TRACK_LEASE_S:.0f} s)")
+            state["tracking"] = None
+            await broadcast(snapshot())
+
+
 async def ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(heartbeat=20)
     await ws.prepare(request)
@@ -378,7 +496,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
 
 async def on_startup(app: web.Application) -> None:
-    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop()):
+    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop(), control_watchdog()):
         asyncio.create_task(coro)
 
 
@@ -386,6 +504,8 @@ app = web.Application()
 app.router.add_get("/telemetry", ws_handler)
 app.router.add_get("/telemetry/state", lambda r: web.json_response(snapshot()))
 app.router.add_get("/telemetry/beacons", beacons_response)
+app.router.add_get("/telemetry/control", control_get)
+app.router.add_post("/telemetry/control", control_post)
 app.router.add_get("/telemetry/tle/{group}", tle_response)
 app.router.add_get("/telemetry/summits", lambda r: web.json_response({"updated": summits["updated"], "summits": [
     {k: x[k] for k in ("ref", "name", "lat", "lon", "h")} for x in summits["summits"]]}))

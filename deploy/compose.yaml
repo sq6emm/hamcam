@@ -44,6 +44,12 @@ services:
       TLE_GROUPS: ${TLE_GROUPS:-visual,amateur}
       SOTA_ASSOCIATIONS: ${SOTA_ASSOCIATIONS:-SP,OK}
       SUMMIT_MAX_KM: ${SUMMIT_MAX_KM:-250}
+      CONTROL_ALLOW: ${CONTROL_ALLOW:-}  # rotator control for these networks (CIDRs); empty = disabled
+      TRACK_STEP_DEG: ${TRACK_STEP_DEG:-2}
+      TRACK_MIN_INTERVAL_S: ${TRACK_MIN_INTERVAL_S:-3}
+      TRACK_LEASE_S: ${TRACK_LEASE_S:-10}
+      ROT_EL_MIN: ${ROT_EL_MIN:-0}
+      ROT_EL_MAX: ${ROT_EL_MAX:-90}
     user: "${HAMCAM_UID:-1000}:${HAMCAM_GID:-1000}"   # must be able to write HAMCAM_DATA
     volumes:
       - ${HAMCAM_DATA:-./data}:/data     # persistent beacon list, TLEs, summits
@@ -55,6 +61,7 @@ services:
     container_name: hamcam-web
     environment:
       ADSB_URL: ${ADSB_URL:-http://127.0.0.1:9/none}   # aircraft.json of the ADS-B receiver (tar1090/readsb/ultrafeeder)
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-127.0.0.1}       # front proxy whose X-Forwarded-For is trusted (client IP for control)
     volumes:
       - ./config:/config:ro              # objects.json, served at /objects.json
     ports:
