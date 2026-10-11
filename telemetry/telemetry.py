@@ -16,6 +16,7 @@ Env:
   TRACK_STEP_DEG, TRACK_MIN_INTERVAL_S, TRACK_LEASE_S  tracking: move when the target is this far off, at most this
                                often; tracking ends when the page stops confirming it for TRACK_LEASE_S
   ROT_EL_MIN, ROT_EL_MAX       elevation range sent to rotctld (az-only rotators ignore it)
+  QTHDB_URL                    callsign -> locator lookup for the "point to" field (default https://qthdb.hamradio.pl)
   BEACON_MAX_KM, BEACON_KEEP_DAYS  radius from the station; the API only lists beacons reported recently, so the
                                list is kept in BEACON_FILE and a beacon is dropped only when QRT or unreported > KEEP_DAYS
 """
@@ -52,6 +53,7 @@ TRACK_MIN_INTERVAL_S = float(os.environ.get("TRACK_MIN_INTERVAL_S", "3"))
 TRACK_LEASE_S = float(os.environ.get("TRACK_LEASE_S", "10"))
 ROT_EL_MIN = float(os.environ.get("ROT_EL_MIN", "0"))
 ROT_EL_MAX = float(os.environ.get("ROT_EL_MAX", "90"))
+QTHDB_URL = os.environ.get("QTHDB_URL", "https://qthdb.hamradio.pl").rstrip("/")
 OBJECTS_FILE = os.environ.get("OBJECTS_FILE", "/config/objects.json")
 SOTA_ASSOCIATIONS = [a for a in os.environ.get("SOTA_ASSOCIATIONS", "SP,OK").split(",") if a]
 SUMMIT_MAX_KM = float(os.environ.get("SUMMIT_MAX_KM", "250"))
@@ -468,6 +470,36 @@ async def control_post(request: web.Request) -> web.Response:
                               "tracking": state["tracking"]})
 
 
+locate_cache: dict = {}                                  # call -> (time, response dict)
+
+
+async def locate(request: web.Request) -> web.Response:
+    """Callsign -> locator via qthdb, for the page's "point to" field (control users only: not an open proxy)."""
+    if not control_allowed(client_ip(request)):
+        raise web.HTTPForbidden(text="not allowed from this network")
+    call = request.match_info["call"].upper()
+    if not (3 <= len(call) <= 15) or not all(c.isalnum() or c == "/" for c in call):
+        raise web.HTTPBadRequest(text="bad callsign")
+    hit = locate_cache.get(call)
+    if hit and time.time() - hit[0] < 600:
+        return web.json_response(hit[1])
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as s:
+            async with s.get(f"{QTHDB_URL}/v1/locator/{call}") as r:
+                if r.status == 404:
+                    raise web.HTTPNotFound(text=f"{call}: unknown callsign")
+                d = await r.json(content_type=None)
+    except web.HTTPException:
+        raise
+    except Exception as e:
+        raise web.HTTPBadGateway(text=f"qthdb lookup failed: {e!r}"[:120])
+    out = {k: d.get(k) for k in ("call", "locator", "confidence", "level", "last_seen", "mobile")}
+    if not out["locator"]:
+        raise web.HTTPNotFound(text=f"{call}: no locator")
+    locate_cache[call] = (time.time(), out)
+    return web.json_response(out)
+
+
 async def control_watchdog() -> None:
     # tracking needs the page to keep confirming it; when it stops (page closed, connection lost) tracking ends
     while True:
@@ -506,6 +538,7 @@ app.router.add_get("/telemetry/state", lambda r: web.json_response(snapshot()))
 app.router.add_get("/telemetry/beacons", beacons_response)
 app.router.add_get("/telemetry/control", control_get)
 app.router.add_post("/telemetry/control", control_post)
+app.router.add_get("/telemetry/locate/{call}", locate)
 app.router.add_get("/telemetry/tle/{group}", tle_response)
 app.router.add_get("/telemetry/summits", lambda r: web.json_response({"updated": summits["updated"], "summits": [
     {k: x[k] for k in ("ref", "name", "lat", "lon", "h")} for x in summits["summits"]]}))

@@ -469,7 +469,8 @@ fetch('telemetry/control', { cache: 'no-store' }).then(r => r.json())
   .then(d => { if (d.allowed) $('ctl').hidden = false; }).catch(() => { /* control not available */ });
 $('ctl').onclick = () => {
   ctlOn = !ctlOn;
-  $('ctl').classList.toggle('on', ctlOn); $('stopBtn').hidden = !ctlOn; $('frame').classList.toggle('ctl', ctlOn);
+  $('ctl').classList.toggle('on', ctlOn); $('stopBtn').hidden = !ctlOn; $('gotoIn').hidden = !ctlOn;
+  $('frame').classList.toggle('ctl', ctlOn);
 };
 function stopNow() { track = null; ctl({ cmd: 'stop' }); flash('Rotator: STOP'); }
 $('stopBtn').onclick = stopNow;
@@ -487,6 +488,7 @@ function controlClick(x, y) {
   if (best && best.track) { startTrack(best.track); return; }
   track = null;                                          // a new target ends tracking (the server cancels it on goto)
   const t = best || { ...camera.unproject(x, y), name: null };
+  gotoName = t.name;
   ctl({ cmd: 'goto', az: wrap360(t.az - cfg.azOff), el: t.el })
     .then(r => r && flash(`Rotator → ${t.name ? t.name + ' ' : ''}${wrap360(t.az).toFixed(1)}° / ${t.el.toFixed(1)}°`));
 }
@@ -498,7 +500,36 @@ function trackLook(t, date) {
   for (const g of Object.values(SAT)) { const s = g.recs.find(r => r.rec.satnum === t.key); if (s) return satLook(s.rec, date); }
   return null;
 }
-function startTrack(t) { track = { ...t, since: Date.now() }; flash(`Rotator: tracking ${t.name}`); trackTick(); }
+// "point to" field: azimuth ("213", "213/10" = az/el), locator ("JO80HK") or callsign ("SP6GWB", via qthdb)
+let gotoName = null;                                     // name of the last target sent from this page
+const LOC_RE = /^[A-R]{2}\d{2}(?:[A-X]{2}(?:\d{2}(?:[A-X]{2})?)?)?$/i;
+async function pointTo(text) {
+  const s = text.trim();
+  if (!s) return;
+  let az, el = 0, name = null, info = '';
+  const m = s.match(/^(\d{1,3}(?:[.,]\d+)?)(?:\s*[\/ ]\s*(-?\d{1,2}(?:[.,]\d+)?))?$/);
+  if (m) {
+    az = parseFloat(m[1].replace(',', '.')); el = m[2] ? parseFloat(m[2].replace(',', '.')) : 0;
+    if (!(az >= 0 && az <= 360)) { flash('Azimuth must be 0–360°'); return; }
+  } else {
+    let loc;
+    if (LOC_RE.test(s)) { loc = s.toUpperCase(); name = loc; info = loc; }
+    else if (/^[A-Z0-9/]{3,15}$/i.test(s)) {
+      const r = await fetch(`telemetry/locate/${encodeURIComponent(s.toUpperCase())}`, { cache: 'no-store' }).catch(() => null);
+      if (!r || !r.ok) { flash(r ? (await r.text()).slice(0, 80) : 'Callsign lookup: no connection'); return; }
+      const d = await r.json();
+      loc = d.locator; name = d.call; info = `${d.call} ${d.locator}${d.level ? ` (${d.level})` : ''}`;
+    } else { flash('Enter an azimuth, locator or callsign'); return; }
+    const ll = locatorToLatLon(loc), t = azElOf(ST, ll.lat, ll.lon, 0);
+    az = t.az; info += ` ${fmtKm(t.dist)}`;           // ground station far beyond the horizon: el 0
+  }
+  track = null;
+  const r = await ctl({ cmd: 'goto', az: wrap360(az - cfg.azOff), el });
+  if (r) { gotoName = name; flash(`Rotator → ${info ? info + ' · ' : ''}${wrap360(az).toFixed(1)}° / ${el.toFixed(0)}°`, 4000); }
+}
+$('gotoIn').addEventListener('keydown', e => { if (e.key === 'Enter') { pointTo(e.target.value); e.target.select(); } });
+
+function startTrack(t) { gotoName = null; track = { ...t, since: Date.now() }; flash(`Rotator: tracking ${t.name}`); trackTick(); }
 async function trackTick() {
   if (!track) return;
   const l = trackLook(track, new Date(Date.now() + clockOffset));
@@ -530,7 +561,8 @@ function drawCtl(az) {
   camera.setYaw(yaw);
   const ey = camera.project(yaw, tele.target_el ?? 0).y;
   if (ey > 110 && ey < H - 10) el('path', { d: `M${bx - 52} ${ey - 9} L${bx - 52} ${ey + 9} L${bx - 36} ${ey} Z`, fill: col }, g);
-  const txt = tele.tracking ? `tracking ${tele.tracking}` : `→ ${wrap360(tAz).toFixed(0)}° / ${(tele.target_el ?? 0).toFixed(0)}°`;
+  const txt = tele.tracking ? `tracking ${tele.tracking}`
+    : `→ ${gotoName ? gotoName + ' ' : ''}${wrap360(tAz).toFixed(0)}° / ${(tele.target_el ?? 0).toFixed(0)}°`;
   el('rect', { x: bx - txt.length * 7.5 - 10, y: 192, width: txt.length * 15 + 20, height: 34, rx: 6, class: 'panel' }, g);
   label(g, bx, 218, txt, col, 'middle');
 }

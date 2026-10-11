@@ -40,3 +40,5 @@ ham-video video { object-fit: fill; }
 #bar .sep { flex: 1 1 24px; min-width: 24px; border-left: 1px solid #2b333d; height: 26px; }   /* overlay switches | page actions */
 #bar button.stop { background: #b91c1c; border-color: #ef4444; color: #fff; font-weight: 700; }   /* rotator STOP */
 #frame.ctl { cursor: crosshair; }
+#bar input { background: #0d1117; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px; padding: 4px 8px; font: inherit; width: 13em; }
+#bar input:focus { outline: none; border-color: var(--accent); }

@@ -4,7 +4,8 @@ Live, low-latency view from a camera mounted on a rotating antenna (SQ6EMM, JO81
 knows where the antenna points: compass tape and elevation scale, local landmarks, 23 cm beacons, SOTA summits,
 aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites. Every layer can be switched on/off.
 From allowed networks the page can also steer the rotator: with **Control** on, a click turns the antenna to that
-point or object (az and el are sent), a click on an aircraft or satellite tracks it; **STOP** / Esc stops at once.
+point or object (az and el are sent), a click on an aircraft or satellite tracks it; the point-to field takes an azimuth (`213`, `213/10` = az/el),
+a locator (`JO80HK`) or a callsign (`SP6GWB`, looked up at qthdb.hamradio.pl); **STOP** / Esc stops at once.
 
 ```
 camera --RTSP--> go2rtc --WebRTC--> browser  (overlay drawn in the browser: web/www)
@@ -81,6 +82,7 @@ re-reads it on its next refresh).
 | `TLE_GROUPS` | telemetry | CelesTrak groups for the satellite layers (`visual,amateur`) |
 | `CONTROL_ALLOW` | telemetry | networks (CIDRs) allowed to steer the rotator from the page; **empty = disabled** |
 | `TRUSTED_PROXY` | web | public front proxy; only its `X-Forwarded-For` is trusted (its last entry), so visitors coming through it are judged by their real address |
+| `QTHDB_URL` | telemetry | callsign → locator lookup for the point-to field (`https://qthdb.hamradio.pl`) |
 | `TRACK_STEP_DEG`, `TRACK_MIN_INTERVAL_S`, `TRACK_LEASE_S`, `ROT_EL_MIN`, `ROT_EL_MAX` | telemetry | tracking: move when ≥ 2° off, at most every 3 s, ends 10 s after the page stops confirming; elevation range sent to rotctld |
 | `SOTA_ASSOCIATIONS`, `SUMMIT_MAX_KM` | telemetry | SOTA associations searched for visible summits (`SP,OK`) and radius (250 km) |
 

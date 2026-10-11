@@ -1,5 +1,5 @@
-// Rotator control test (click-to-point, marker, aircraft tracking, Esc=STOP, lease). Run ONLY against a test stack with a
-// fake rotctld - it moves the rotator. Poses as a LAN visitor behind the front proxy (X-Forwarded-For).
+// Rotator control test (click-to-point, marker, aircraft tracking, Esc=STOP, lease). Run ONLY against tools/ctltest/stack.sh (a
+// fake rotctld) - it moves the rotator. Poses as a LAN visitor behind the front proxy (X-Forwarded-For).
 import puppeteer from 'puppeteer-core';
 const U = 'http://127.0.0.1:8098/', sleep = ms => new Promise(r => setTimeout(r, ms));
 const b = await puppeteer.launch({ executablePath: process.env.CHROME, headless: 'new', args: ['--no-sandbox', '--user-data-dir=/tmp/pct'] });
