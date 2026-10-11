@@ -71,7 +71,7 @@ re-reads it on its next refresh).
 | `CAMERA_MAIN_URL` | go2rtc | RTSP URL of the camera main stream, incl. user/password (required) |
 | `CAMERA_SUB_URL` | go2rtc | RTSP URL of the sub stream (optional) |
 | `WEBRTC_CANDIDATE_LAN` | go2rtc | `host:port` LAN viewers connect to for WebRTC media (e.g. `192.168.12.12:8556`) |
-| `WEBRTC_CANDIDATE_WAN` | go2rtc | public address for remote viewers: `stun:8556` (public IP found via STUN) or `IP:8556` – not a host name, browsers ignore those. Forward 8556 UDP **and** TCP on the firewall. |
+| `WEBRTC_CANDIDATE_WAN` | go2rtc | public address for remote viewers: `stun:8556` (public IP found via STUN, also with a dynamic IP) or `IP:8556`. Forward 8556 UDP **and** TCP on the firewall to this host; if remote viewers fall back to MSE, check the forward first. |
 | `ROTCTLD_HOST`, `ROTCTLD_PORT` | telemetry, tools | Hamlib rotctld; empty host = simulated azimuth sweep |
 | `WEATHER_URL`, `WEATHER_FIELDS` | telemetry | weather JSON endpoint (API keys stay server-side) and `name=dotted.path,...` fields shown |
 | `ADSB_URL` | nginx | `aircraft.json` of the ADS-B receiver (readsb / tar1090 / ultrafeeder) |
