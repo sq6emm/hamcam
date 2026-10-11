@@ -65,7 +65,7 @@ re-reads it on its next refresh).
 
 | Variable | Used by | Meaning |
 |---|---|---|
-| `HAMCAM_VERSION` | compose | image tag (`latest` or a release such as `v1.0.0`) |
+| `HAMCAM_VERSION` | compose | image tag: `latest`, a release version without "v" (`0.0.9`), or `0.0` for the newest 0.0.x |
 | `HAMCAM_DATA`, `HAMCAM_UID`, `HAMCAM_GID` | telemetry | persistent data directory and the uid:gid that writes it |
 | `HAMCAM_WEB_PORT` | web | host port of the page (8097) |
 | `CAMERA_MAIN_URL` | go2rtc | RTSP URL of the camera main stream, incl. user/password (required) |

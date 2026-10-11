@@ -11,16 +11,17 @@ const count = () => p.evaluate(() => {
   return { beaconLabels: col('rgb(196, 161, 255)'), summitLabels: col('rgb(126, 231, 135)'), poiLabels: col('rgb(255, 204, 51)'),
            planes: document.getElementById('planes').querySelectorAll('rect').length,
            sats: document.getElementById('sats').querySelectorAll('circle').length,
-           bodies: document.getElementById('marks').querySelectorAll('circle').length };
+           bodies: document.getElementById('marks').querySelectorAll('circle').length,
+           wxLines: document.querySelectorAll('#wx tspan').length, title: document.title };
 });
 await p.screenshot({ path: '/out/all.png' });
 console.log('all on      ', JSON.stringify(await count()));
-for (const id of ['lyBeacons', 'lyPoi', 'lySummits', 'lyPlanes', 'lySky', 'lySats', 'lyHam']) {
+for (const id of ['lyWx', 'lyBeacons', 'lyPoi', 'lySummits', 'lyPlanes', 'lySky', 'lySats', 'lyHam']) {
   await p.click('#' + id); await new Promise(r => setTimeout(r, 400));
   console.log(`after ${id.padEnd(9)}`, JSON.stringify(await count()));
 }
 await p.reload({ waitUntil: 'load' }); await new Promise(r => setTimeout(r, 4000));
 console.log('after reload', JSON.stringify(await count()), '(should stay all off)');
-for (const id of ['lyBeacons', 'lyPoi', 'lySummits', 'lyPlanes', 'lySky', 'lySats', 'lyHam']) await p.click('#' + id);
+for (const id of ['lyWx', 'lyBeacons', 'lyPoi', 'lySummits', 'lyPlanes', 'lySky', 'lySats', 'lyHam']) await p.click('#' + id);
 console.log('errors:', errs.length ? errs : 'none');
 await b.close();
