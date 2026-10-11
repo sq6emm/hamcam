@@ -557,9 +557,10 @@ drawTape(0);
 
 // ---------- clock ----------
 setInterval(() => {
+  // server-synced UTC date and time, whole seconds (e.g. 2026-10-11 23:08:15 UTC)
   const d = new Date(Date.now() + clockOffset);
-  $('clock').textContent = d.toLocaleTimeString('pl-PL', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
-}, 47);
+  $('clock').textContent = d.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+}, 200);
 
 // ---------- screenshot: current video frame + full HUD, at native resolution ----------
 function flash(text, ms = 2500) {
