@@ -106,6 +106,19 @@ setInterval(() => {
   else v.playbackRate = lag > 0.3 ? 1.1 : 1.0;
 }, 500);
 
+// MSE delay compensation: with MSE the visible frame is older than with WebRTC by the video waiting in the buffer,
+// so that much is added to every "as in the frame" time (azimuth, aircraft, satellites). WebRTC: 0.
+// Smoothed (time constant ~1 s), limited to 0..3 s. ?msecomp=0 switches it off (for comparison tests).
+const MSE_COMP = q.get('msecomp') !== '0';
+let mseExtra = 0;
+setInterval(() => {
+  const v = player.video;
+  if (!MSE_COMP || !v || v.srcObject || !v.buffered.length) { mseExtra = 0; if (window.__hook) window.__mseExtra = 0; return; }
+  const lag = Math.min(Math.max(v.buffered.end(v.buffered.length - 1) - v.currentTime, 0), 3);
+  mseExtra += (lag - mseExtra) * 0.1;
+  if (window.__hook) window.__mseExtra = mseExtra;      // test hook (set only by the browser tests)
+}, 100);
+
 // ---------- HUD ----------
 const focal = camera.f;
 const bx = cfg.bx * W, by = cfg.by * H;
@@ -281,7 +294,7 @@ function drawPlanes(az) {
   if (az == null || !layers.planes) return;
   const yaw = az + cfg.azOff;
   camera.setYaw(yaw);
-  const tNow = (Date.now() + clockOffset) / 1000 - VIDEO_LAG;
+  const tNow = (Date.now() + clockOffset) / 1000 - VIDEO_LAG - mseExtra;
   const shown = [], boxes = [];
   for (const p of planes) {
     // dead-reckon from the last position report to the moment the frame was taken
@@ -356,7 +369,7 @@ function drawSats(az) {
   if (az == null || !(layers.sats || layers.hamsats) || !window.satellite) return;
   const yaw = az + cfg.azOff;
   camera.setYaw(yaw);
-  const date = new Date(Date.now() + clockOffset - VIDEO_LAG * 1000), later = new Date(date.getTime() + 20000);
+  const date = new Date(Date.now() + clockOffset - (VIDEO_LAG + mseExtra) * 1000), later = new Date(date.getTime() + 20000);
   const sv = window.Astronomy.GeoVector('Sun', date, true), sn = Math.hypot(sv.x, sv.y, sv.z);
   const sunDir = [sv.x / sn, sv.y / sn, sv.z / sn];
   const taken = [], seen = new Set();
@@ -448,7 +461,7 @@ const azHist = [];                 // [server ms, az]
 // to sample, fit a straight line through the samples around that time (wrap-aware) -> smooth motion, no lag at constant speed
 function delayedAz() {
   if (!azHist.length) return null;
-  const tt = Date.now() + clockOffset - cfg.azDelay * 1000;
+  const tt = Date.now() + clockOffset - (cfg.azDelay + mseExtra) * 1000;
   const ref = azHist[azHist.length - 1][1];
   const pts = [];
   for (const [t, a] of azHist) if (t >= tt - 1200 && t <= tt + 500) pts.push([(t - tt) / 1000, ((a - ref + 540) % 360) - 180]);
