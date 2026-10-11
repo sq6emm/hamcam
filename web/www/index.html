@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SQ6EMM Antenna Cam</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:,">
+</head>
+<body>
+<main id="stage">
+  <div id="frame">
+    <ham-video id="video"></ham-video>
+    <!-- Entire HUD lives in this SVG (styles inline) so screenshots can render it onto the frame -->
+    <svg id="hud" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" preserveAspectRatio="none" aria-hidden="true">
+      <style>
+        text { fill: #f2f4f7; paint-order: stroke; stroke: rgba(0,0,0,.85); stroke-width: 6px;
+               font-family: ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 26px; }
+        line, path { stroke: #f2f4f7; }
+        .acc { fill: #ffcc33; }
+        .card { fill: #ffcc33; font-weight: 700; font-size: 30px; }
+        .big { font-size: 60px; font-weight: 700; fill: #ffcc33; }
+        .sm { font-size: 22px; fill: #c9d1d9; }
+        .panel { fill: rgba(8,10,14,.55); }
+        #boresight line, #boresight circle { stroke: #ffcc33; fill: none; stroke-width: 3; }
+        .elv { fill: #ffcc33; font-size: 24px; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 4px; }
+        .pl { font-size: 26px; font-weight: 700; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 4px; }
+        .ok { fill: #4ade80; } .bad { fill: #f87171; }
+      </style>
+      <g id="tape"></g>
+      <g id="marks"></g>
+      <g id="planes"></g>
+      <g id="sats"></g>
+      <g id="boresight"></g>
+      <g id="probe"></g>
+      <g id="azbox">
+        <rect class="panel" x="660" y="96" width="280" height="84" rx="10" stroke="#ffcc33" stroke-width="2"/>
+        <text id="az" class="big" x="800" y="160" text-anchor="middle">---.-°</text>
+      </g>
+      <g id="wx"><text x="1576" y="1100" text-anchor="end"></text></g>
+    </svg>
+    <div id="msg" hidden></div>
+  </div>
+  <nav id="bar">
+    <span class="title">SQ6EMM · antenna cam</span>
+    <button id="hudToggle">Overlay</button>
+    <button id="lyBeacons" title="23 cm beacons + radio stations">Beacons</button>
+    <button id="lyPoi" title="local points of interest">POI</button>
+    <button id="lySummits" title="SOTA summits above the horizon">Summits</button>
+    <button id="lyPlanes" title="aircraft (ADS-B)">Planes</button>
+    <button id="lySky" title="Sun, Moon, planets">Sky</button>
+    <button id="lySats" title="bright (naked-eye) satellites, CelesTrak visual">Sats</button>
+    <button id="lyHam" title="amateur radio satellites, CelesTrak amateur">Ham sats</button>
+    <span class="sep"></span>
+    <button id="shot">Screenshot</button>
+    <button id="fs">Fullscreen</button>
+    <span id="clock" title="Server-synced clock (compare with camera OSD)"></span>
+  </nav>
+</main>
+<script src="vendor/astronomy.browser.min.js"></script>
+<script src="vendor/satellite.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

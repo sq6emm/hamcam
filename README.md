@@ -1,0 +1,98 @@
+# hamcam – antenna camera with a calibrated overlay
+
+Live, low-latency view from a camera mounted on a rotating antenna (SQ6EMM, JO81LC), with a browser-side overlay that
+knows where the antenna points: compass tape and elevation scale, local landmarks, 23 cm beacons, SOTA summits,
+aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites. Every layer can be switched on/off.
+
+```
+camera --RTSP--> go2rtc --WebRTC--> browser  (overlay drawn in the browser: web/www)
+rotctld, weather, IARU beacons, CelesTrak TLEs, SOTA --> telemetry service --WebSocket/JSON--> browser
+ADS-B receiver aircraft.json --> nginx --> browser
+```
+
+| Part | Directory | Container |
+|---|---|---|
+| Page and overlay (camera model, projection, layers) | `web/www` | `hamcam-web` (nginx, port 8097) |
+| Telemetry: rotator 10 Hz, weather, beacons, TLEs, summits | `telemetry/` | `hamcam-telemetry` |
+| Video passthrough (no transcoding) | – | `hamcam-go2rtc` (WebRTC on 8556) |
+| Deployment templates | `deploy/` | – |
+| Calibration and test tools | `tools/` | run ad hoc in containers |
+
+## Deploy
+
+```
+git clone git@github.com:sq6emm/hamcam.git /data/claude/hamcam
+mkdir -p /etc/docker-compose/hamcam/config
+cp deploy/compose.yaml deploy/go2rtc.yaml deploy/nginx.conf.template /etc/docker-compose/hamcam/
+cp deploy/objects.json /etc/docker-compose/hamcam/config/objects.json      # then set your station/camera/POIs
+cp deploy/.env.example /etc/docker-compose/hamcam/.env && chmod 600 /etc/docker-compose/hamcam/.env   # fill in
+cd /etc/docker-compose/hamcam && docker compose up -d
+```
+
+`deploy/` mirrors the live configuration in /etc/docker-compose/hamcam (without `.env`).
+
+## Calibration tools (`tools/`)
+
+- `calib/distortion.py` – lens model (f, k1, k2, optical centre, roll) from frames taken with the rotator as a turntable
+- `tilt/` – mast / rotation-axis tilt from roof edges (LiDAR surface model + OSM buildings)
+- `calib/blink_measure.py` – az/el of (blinking) lights from a short video
+- `browser/` – headless Chromium tests: screenshots, overlay timing vs video, layer switches
+
+All configuration is in **/etc/docker-compose/hamcam/**:
+
+| File | Content |
+|---|---|
+| `compose.yaml` | the stack (go2rtc, telemetry, web) |
+| `.env` | network, equipment, credentials (chmod 600; not visible inside the containers) |
+| `go2rtc.yaml` | stream settings; camera URLs and WebRTC addresses come from `.env` |
+| `nginx.conf.template` | page routing; the ADS-B address comes from `.env` |
+| `config/objects.json` | station location, camera/lens model, display values, POIs (served at `/objects.json`) |
+
+Code and data stay in **/data/claude/hamcam/** (`web/www` page, `telemetry/` service source, `telemetry/data/` persistent
+lists, `tools/`). Apply a change: `cd /etc/docker-compose/hamcam && docker compose up -d` (after editing `.env`,
+`compose.yaml`, `go2rtc.yaml` or the nginx template); `objects.json` only needs a page reload (the telemetry service
+re-reads it on its next refresh).
+
+## `.env` – network, equipment, credentials (chmod 600, never published)
+
+| Variable | Used by | Meaning |
+|---|---|---|
+| `CAMERA_MAIN_URL` | go2rtc | RTSP URL of the camera main stream, incl. user/password (required) |
+| `CAMERA_SUB_URL` | go2rtc | RTSP URL of the sub stream (optional) |
+| `WEBRTC_CANDIDATE_LAN` | go2rtc | `host:port` LAN viewers connect to for WebRTC media (e.g. `192.168.12.12:8556`) |
+| `WEBRTC_CANDIDATE_WAN` | go2rtc | public `host:port` for remote viewers (port forwarded on the firewall) |
+| `ROTCTLD_HOST`, `ROTCTLD_PORT` | telemetry, tools | Hamlib rotctld; empty host = simulated azimuth sweep |
+| `WEATHER_URL`, `WEATHER_FIELDS` | telemetry | weather JSON endpoint (API keys stay server-side) and `name=dotted.path,...` fields shown |
+| `ADSB_URL` | nginx | `aircraft.json` of the ADS-B receiver (readsb / tar1090 / ultrafeeder) |
+| `BEACON_BAND`, `BEACON_MAX_KM`, `BEACON_KEEP_DAYS` | telemetry | IARU beacon list: band (`23cm`), radius from the station (900), drop after N days unreported (90) |
+| `TLE_GROUPS` | telemetry | CelesTrak groups for the satellite layers (`visual,amateur`) |
+| `SOTA_ASSOCIATIONS`, `SUMMIT_MAX_KM` | telemetry | SOTA associations searched for visible summits (`SP,OK`) and radius (250 km) |
+
+## `config/objects.json` – station, camera model, POIs
+
+- `station`: `lat`, `lon`, `h` (antenna height **above sea level**, m), `call`, `locator`.
+  **Single source of the location**: page, telemetry (beacon distances, summit visibility) and the calibration tools use it.
+- `camera`:
+  - `width`, `height`: image size (sets the overlay aspect ratio)
+  - lens: `f_px` (focal length in px at `f_ref_w` width), `k1`, `k2` (radial distortion), `pp_px` (optical centre offset),
+    `hfov` – measured with `tools/calib/distortion.py`
+  - orientation: `pitch`, `roll` (at the image centre), `az_offset` (true azimuth of the image centre − rotator azimuth),
+    `tilt` (`A`, `B`, `ref_az`: mast tilt, from `tools/tilt/tilt_calib.py`)
+  - `az_delay`: how much the video lags the rotator readout (s); `boresight`: antenna direction in the frame (fractions)
+- `display`: `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
+  station, for ADS-B GPS altitudes), `adsb_max_km`.
+- `objects`: your own points – `landmark` (with `lat`, `lon`, `h` = top height ASL) or `radio` (`locator`); add/remove freely.
+
+Query parameters override camera values for testing: `?hfov= &pitch= &roll= &azoff= &azdelay= &k1= &k2= &adsbkm= &notilt`.
+
+## Derived automatically from the station location
+
+Azimuth/elevation/distance of all objects · 23 cm beacons (IARU API, merged daily) · SOTA summits above the horizon (weekly,
+and immediately after the station changes) · Sun, Moon, planets · satellite passes (TLEs every 12 h) · aircraft positions.
+
+## Measured per installation (re-measure when the camera or mast changes)
+
+Lens model and roll (`tools/calib/distortion.py`), pitch / `az_offset` (a known landmark, here Sky Tower),
+`az_delay` and `video_lag_s` (browser timing test), mast tilt (`tools/tilt/`). The older one-off scripts in
+`tools/calib/` (drift/speed tests, encoder monitor) still contain this site's addresses. Tools that read the
+camera model mount `/etc/docker-compose/hamcam/config` as `/www`.

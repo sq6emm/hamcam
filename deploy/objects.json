@@ -1,0 +1,92 @@
+{
+  "_comment": "Station, camera model and objects for the HUD. Heights are metres above sea level (top of object). Edit freely; the page reloads it every 5 min.",
+  "station": {
+    "call": "SQ6EMM",
+    "locator": "JO81LC39AX",
+    "lat": 51.12486028,
+    "lon": 16.94191628,
+    "_pos_note": "antenna position from user (Google Maps) 2026-10-11; ground 117.7 m (GUGiK NMT); antenna 15 m above ground (user) -> h = 132.7 m ASL",
+    "h": 132.7
+  },
+  "camera": {
+    "_comment": "hfov: rectilinear-equivalent at image centre (measured 34.6 px/deg @2560). pitch: camera tilt, deg (+up). az_offset: true az of image centre = rotator az + az_offset. az_delay: video lags rotctld by this (s).",
+    "width": 2560,
+    "height": 1920,
+    "hfov": 76.6,
+    "f_px": 1998.8,
+    "f_ref_w": 2560,
+    "k1": -0.3877,
+    "k2": 0.1354,
+    "pp_px": [
+      -24.7,
+      84.0
+    ],
+    "_lens_note": "2026-10-11 night: lens distortion fitted from 4700 SIFT matches between frames at rotator 97..142 deg (tools/calib/distortion.py, NPP=2: optical centre free, rms 0.049 deg; rectilinear model was 0.59 deg and put objects 3.4 deg too far out at 30 deg off-centre). Roll fitted +1.26.",
+    "pitch": -1.28,
+    "_pitch_note": "2026-10-11: Sky Tower top (el 1.75) at y=854 of 1920 -> -1.3 deg",
+    "roll": 1.24,
+    "az_offset": 0.0,
+    "_az_offset_note": "2026-10-11 09:25 UTC: rotator recalibrated in K3NG (\\A122 + \\Q while pointing at Sky Tower, true 121.95). Before: rotctld read ~18.8 deg low.",
+    "az_delay": 0.48,
+    "boresight": [
+      0.5,
+      0.265
+    ]
+  },
+  "objects": [
+    {
+      "name": "Sky Tower",
+      "kind": "landmark",
+      "lat": 51.094663,
+      "lon": 17.018956,
+      "h": 335.5,
+      "src": "top red aviation light 215 m above ground (user) + ground 120.5 m (GUGiK NMT); OSM way 165880544"
+    },
+    {
+      "name": "Iglica",
+      "kind": "landmark",
+      "lat": 51.107551,
+      "lon": 17.075417,
+      "h": 208,
+      "src": "OSM way 312927675 (90 m)"
+    },
+    {
+      "name": "Ślęża RTCN",
+      "kind": "landmark",
+      "lat": 50.864919,
+      "lon": 16.709683,
+      "h": 850,
+      "src": "OSM node 794745107 (136 m tower near 718 m summit)"
+    },
+    {
+      "name": "EC Wrocław chimney",
+      "kind": "landmark",
+      "lat": 51.123663,
+      "lon": 17.024626,
+      "h": 301.9,
+      "src": "Kogeneracja / PGE EC Wrocław, tallest chimney: OSM way 301417638 (height 186 m) + ground 115.9 m (GUGiK NMT). Top light not yet confirmed by camera (2026-10-11 night: a blinking light at az 90.3 el ~3.9 is something else, likely a closer crane)"
+    },
+    {
+      "name": "GSM mast Alba",
+      "kind": "landmark",
+      "lat": 51.124501,
+      "lon": 16.937993,
+      "h": 153.1,
+      "src": "user, Google Maps 2026-10-11 (= OSM node 6142939720); ground 116.7 m (GUGiK NMT); top measured by camera: 153.1 m ASL (~36 m above ground)"
+    },
+    {
+      "name": "SP6GWB",
+      "kind": "radio",
+      "locator": "JO80HK",
+      "src": "qthdb 2026-10-11, conf 0.8"
+    }
+  ],
+  "_beacons_note": "23 cm beacons come from /telemetry/beacons (IARU list, merged daily by the telemetry service; dropped only when QRT or unreported > 90 days)",
+  "_summits_note": "SOTA summits come from /telemetry/summits (computed by the telemetry service from the station location; SOTA_ASSOCIATIONS / SUMMIT_MAX_KM in .env)",
+  "display": {
+    "_comment": "video_lag_s: camera->browser latency (aircraft/satellite positions are shown for that moment); geoid_n_m: geoid height above WGS84 at the station (ADS-B GPS altitude is ellipsoidal); adsb_max_km: farther aircraft are hidden (?adsbkm= overrides)",
+    "video_lag_s": 0.45,
+    "geoid_n_m": 40,
+    "adsb_max_km": 60
+  }
+}

@@ -1,0 +1,26 @@
+# hamcam go2rtc: camera passthrough (no transcoding) -> WebRTC / MSE
+# Separate instance from Frigate's go2rtc (which uses 1984/8554/8555).
+
+api:
+  listen: ":1985"          # only reachable inside the compose network (via web nginx)
+  origin: "*"
+
+rtsp:
+  listen: ":8554"          # restream for local tools (host 127.0.0.1:8557); one camera session for everyone
+
+webrtc:
+  listen: ":8556"          # UDP + TCP; must be forwarded on the firewall for remote viewers
+  candidates:
+    - ${WEBRTC_CANDIDATE_LAN}   # LAN viewers (from .env)
+    - ${WEBRTC_CANDIDATE_WAN}   # remote viewers (from .env; firewall forwards 8556 to this host)
+  ice_servers:
+    - urls: [ "stun:stun.l.google.com:19302" ]
+
+streams:
+  # URLs incl. credentials come from .env (CAMERA_MAIN_URL / CAMERA_SUB_URL)
+  # AAC audio is not WebRTC-compatible, go2rtc simply skips it
+  main: ${CAMERA_MAIN_URL}
+  sub:  ${CAMERA_SUB_URL}
+
+log:
+  level: info

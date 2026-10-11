@@ -1,0 +1,40 @@
+:root {
+  --bg: #0b0d10;
+  --fg: #f2f4f7;
+  --muted: #9aa3ad;
+  --accent: #ffcc33;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+  font: 14px/1.35 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
+#stage { display: flex; flex-direction: column; height: 100%; }
+#frame { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+
+/* video + HUD share one 4:3 box that fits the viewport (HUD styling is inside the SVG) */
+ham-video, #hud {
+  grid-area: 1 / 1;
+  width: min(100%, calc((100vh - 44px) * 4 / 3));
+  aspect-ratio: 4 / 3;
+}
+ham-video { display: block; background: #000; }
+ham-video video { object-fit: fill; }
+#hud { pointer-events: none; }
+#hud.off { display: none; }
+
+#msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(8, 10, 14, 0.8); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 8px 14px; font-size: 16px; pointer-events: none; }
+
+#bar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; height: 44px;
+  border-top: 1px solid #1d232b; flex-wrap: nowrap; overflow-x: auto; }
+#bar .title { font-weight: 700; margin-right: 8px; white-space: nowrap; }
+#bar button { background: #161b22; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px;
+  padding: 4px 10px; font: inherit; cursor: pointer; white-space: nowrap; }
+#bar button.on { border-color: var(--accent); color: var(--accent); }
+#clock { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
+@media (max-width: 640px) {
+  #bar .title { display: none; }
+}
+#bar .sep { flex: 1 1 24px; min-width: 24px; border-left: 1px solid #2b333d; height: 26px; }   /* overlay switches | page actions */

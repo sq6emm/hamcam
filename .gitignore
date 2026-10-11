@@ -1,0 +1,18 @@
+# secrets / live config (lives in /etc/docker-compose/hamcam)
+.env
+deploy/.env
+# generated / persistent data
+telemetry/data/
+# measurement data, analyses, large GIS data, backups
+analysis-*/
+calib-data/
+gis/
+old-stack-backup/
+fw-backup/
+tools/out/
+web/www/analysis/
+# firmware has its own repository (github.com/sq6emm/k3ng-remoteqth-custom)
+fw-build/
+__pycache__/
+*.pyc
+.claude/

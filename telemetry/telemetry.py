@@ -1,0 +1,395 @@
+"""hamcam telemetry: polls rotctld (+ optional weather URL) and pushes JSON to browsers over WebSocket.
+
+Env:
+  ROTCTLD_HOST, ROTCTLD_PORT   rotctld address; empty host -> simulated azimuth (for testing)
+  ROT_POLL_S                   rotator poll interval (default 0.1 s)
+  ROT_DECIMAL                  1 = read K3NG \\?AZ (half degrees) via rotctld raw command (slow: ~0.9 s per query), 0 = standard 'p' (default)
+  WEATHER_URL, WEATHER_POLL_S  optional JSON endpoint (URL incl. API keys stays server-side)
+  WEATHER_FIELDS               name=dotted.path,... picked from the JSON; only these reach the page.
+                               Ecowitt-style leaves ({"value": "12.2", "unit": "C"}) are unpacked.
+  BEACON_URL, BEACON_BAND      IARU beacon list (default iaru.hamradio.pl raw API, 23cm), refreshed daily at BEACON_HOUR_UTC
+  TLE_GROUPS, TLE_MAX_AGE_H    CelesTrak TLE groups (default visual,amateur) cached in TLE_DIR, served at /telemetry/tle/<group>
+  OBJECTS_FILE                 objects.json with the station location (lat, lon, h ASL) - single source for the page too
+  SOTA_ASSOCIATIONS, SUMMIT_MAX_KM  SOTA summits above the horizon from the station, served at /telemetry/summits
+  BEACON_MAX_KM, BEACON_KEEP_DAYS  radius from the station; the API only lists beacons reported recently, so the
+                               list is kept in BEACON_FILE and a beacon is dropped only when QRT or unreported > KEEP_DAYS
+"""
+import asyncio
+import json
+import math
+import os
+import time
+
+import aiohttp
+from aiohttp import web
+
+ROT_HOST = os.environ.get("ROTCTLD_HOST", "")
+ROT_PORT = int(os.environ.get("ROTCTLD_PORT", "4533"))
+ROT_POLL = float(os.environ.get("ROT_POLL_S", "0.1"))
+ROT_DECIMAL = os.environ.get("ROT_DECIMAL", "0") == "1"   # K3NG \\?AZ via rotctld raw command: half degrees instead of whole
+WX_URL = os.environ.get("WEATHER_URL", "")
+WX_POLL = float(os.environ.get("WEATHER_POLL_S", "60"))
+WX_FIELDS = [f.split("=", 1) for f in os.environ.get("WEATHER_FIELDS", "").split(",") if "=" in f]
+BEACON_URL = os.environ.get("BEACON_URL", "https://iaru.hamradio.pl/api/raw/beacons")
+BEACON_BAND = os.environ.get("BEACON_BAND", "23cm")
+BEACON_MAX_KM = float(os.environ.get("BEACON_MAX_KM", "900"))
+BEACON_KEEP_DAYS = float(os.environ.get("BEACON_KEEP_DAYS", "90"))
+BEACON_HOUR_UTC = int(os.environ.get("BEACON_HOUR_UTC", "3"))
+BEACON_FILE = os.environ.get("BEACON_FILE", "/data/beacons.json")
+TLE_GROUPS = [g for g in os.environ.get("TLE_GROUPS", "visual,amateur").split(",") if g]
+TLE_URL = os.environ.get("TLE_URL", "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle")
+TLE_MAX_AGE_H = float(os.environ.get("TLE_MAX_AGE_H", "12"))     # CelesTrak asks for at most a few downloads a day
+TLE_DIR = os.environ.get("TLE_DIR", "/data")
+OBJECTS_FILE = os.environ.get("OBJECTS_FILE", "/config/objects.json")
+SOTA_ASSOCIATIONS = [a for a in os.environ.get("SOTA_ASSOCIATIONS", "SP,OK").split(",") if a]
+SUMMIT_MAX_KM = float(os.environ.get("SUMMIT_MAX_KM", "250"))
+SUMMIT_FILE = os.environ.get("SUMMIT_FILE", "/data/summits.json")
+
+
+def station() -> dict:
+    """Antenna location: the "station" block of objects.json (same file the page uses), read fresh each time."""
+    with open(OBJECTS_FILE) as fp:
+        st = json.load(fp)["station"]
+    return {"lat": float(st["lat"]), "lon": float(st["lon"]), "h": float(st.get("h", 0))}
+
+state = {"az": None, "el": None, "rot_ok": False, "rot_src": "rotctld" if ROT_HOST else "simulated",
+         "wx": None, "wx_ts": None}
+clients: set[web.WebSocketResponse] = set()
+
+
+async def broadcast(msg: dict) -> None:
+    data = json.dumps(msg)
+    for ws in list(clients):
+        try:
+            await ws.send_str(data)
+        except Exception:
+            clients.discard(ws)
+
+
+def snapshot() -> dict:
+    return {"type": "state", "t": time.time(), **state}
+
+
+async def rotator_loop() -> None:
+    last = None
+    while True:
+        if not ROT_HOST:
+            # slow sweep, ~1 deg/s, so the overlay can be tested without the rotator
+            state["az"] = round((time.time() * 1.0) % 360, 1)
+            state["el"] = 0.0
+            state["rot_ok"] = True
+            await broadcast(snapshot())
+            await asyncio.sleep(ROT_POLL)
+            continue
+        try:
+            reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
+            print(f"rotctld connected {ROT_HOST}:{ROT_PORT}")
+            while True:
+                if ROT_DECIMAL:
+                    # rotctld raw passthrough: reply lines are the echo and "\\!OKAZ123.500000"
+                    writer.write(b"w \\?AZ\n")
+                    await writer.drain()
+                    az = None
+                    for _ in range(12):   # reply: echo, blank lines, \\!OKAZ..., trailing blank lines
+                        line = (await asyncio.wait_for(reader.readline(), 3)).decode(errors="replace")
+                        if "OKAZ" in line:
+                            az = float(line.split("OKAZ")[1].strip()); break
+                    if az is None:
+                        raise ValueError("no \\?AZ reply")
+                    el = 0.0
+                else:
+                    writer.write(b"p\n")
+                    await writer.drain()
+                    az = float((await asyncio.wait_for(reader.readline(), 3)).strip())
+                    el = float((await asyncio.wait_for(reader.readline(), 3)).strip())
+                state.update(az=round(az % 360, 1), el=round(el, 1), rot_ok=True)
+                cur = (state["az"], state["el"])
+                if cur != last:
+                    last = cur
+                    await broadcast(snapshot())
+                await asyncio.sleep(ROT_POLL)
+        except Exception as e:
+            print(f"rotctld error: {e!r}")
+            state["rot_ok"] = False
+            await broadcast(snapshot())
+            await asyncio.sleep(3)
+
+
+def pick_fields(doc: dict) -> dict:
+    out = {}
+    for name, path in WX_FIELDS:
+        v = doc
+        for k in path.strip().split("."):
+            v = v.get(k) if isinstance(v, dict) else None
+        unit = ""
+        if isinstance(v, dict):
+            v, unit = v.get("value"), v.get("unit", "")
+        try:
+            out[name.strip()] = {"value": float(v), "unit": unit}
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+async def weather_loop() -> None:
+    if not WX_URL:
+        return
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as s:
+        while True:
+            try:
+                async with s.get(WX_URL) as r:
+                    state["wx"] = pick_fields(await r.json(content_type=None))
+                    state["wx_ts"] = time.time()
+                    await broadcast(snapshot())
+            except Exception as e:
+                print(f"weather error: {e!r}")
+            await asyncio.sleep(WX_POLL)
+
+
+async def heartbeat_loop() -> None:
+    # keeps clocks/state fresh even when the rotator is idle
+    while True:
+        await asyncio.sleep(1)
+        await broadcast(snapshot())
+
+
+# ---------- beacons ----------
+def locator_center(loc: str) -> tuple[float, float]:
+    loc = loc.strip().upper()
+    lon, lat, dlon, dlat = (ord(loc[0]) - 65) * 20 - 180, (ord(loc[1]) - 65) * 10 - 90, 20.0, 10.0
+    for i, (n, base) in enumerate([(10, "0"), (24, "A"), (10, "0"), (24, "A")]):
+        if len(loc) < 4 + 2 * i:
+            break
+        dlon, dlat = dlon / n, dlat / n
+        lon += (ord(loc[2 + 2 * i]) - ord(base)) * dlon
+        lat += (ord(loc[3 + 2 * i]) - ord(base)) * dlat
+    return lat + dlat / 2, lon + dlon / 2
+
+
+def distance_km(lat: float, lon: float, st: dict | None = None) -> float:
+    st = st or station()
+    p1, p2, dl = math.radians(st["lat"]), math.radians(lat), math.radians(lon - st["lon"])
+    c = math.sin(p1) * math.sin(p2) + math.cos(p1) * math.cos(p2) * math.cos(dl)
+    return 6371.0 * math.acos(max(-1.0, min(1.0, c)))
+
+
+def bearing_deg(lat: float, lon: float, st: dict) -> float:
+    p1, p2, dl = math.radians(st["lat"]), math.radians(lat), math.radians(lon - st["lon"])
+    return math.degrees(math.atan2(math.sin(dl) * math.cos(p2),
+                                   math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl))) % 360
+
+
+def load_beacons() -> dict:
+    try:
+        with open(BEACON_FILE) as fp:
+            return json.load(fp)
+    except (OSError, ValueError):
+        return {"updated": None, "beacons": {}}
+
+
+beacons = load_beacons()
+
+
+def merge_beacons(rows: list) -> tuple[int, int, int]:
+    known = beacons["beacons"]
+    st = station()
+    added = updated = dropped = 0
+    for r in rows:
+        if r.get("band") != BEACON_BAND:
+            continue
+        call, loc = r.get("spotted_beacon"), r.get("static_locator") or r.get("spotted_locator")
+        if not call or not loc:
+            continue
+        if r.get("static_status") == "QRT":
+            dropped += known.pop(call, None) is not None
+            continue
+        try:
+            lat, lon = locator_center(loc)
+        except (IndexError, ValueError):
+            continue
+        dist = distance_km(lat, lon, st)
+        if dist > BEACON_MAX_KM:
+            continue
+        old = known.get(call)
+        last = r.get("last_reported") or ""
+        if old and old["last_reported"] > last and old.get("confidence") == "perfect":
+            continue            # keep the newer / better entry when the API lists a beacon twice
+        freq = (r.get("static_freq") or r.get("spotted_freq") or 0) / 1e6
+        known[call] = {"name": call, "locator": loc, "freq": round(freq, 3), "dist_km": round(dist),
+                       "status": r.get("static_status"), "confidence": r.get("confidence_score"), "last_reported": last,
+                       "first_seen": old["first_seen"] if old else time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())}
+        added += old is None
+        updated += old is not None
+    limit = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - BEACON_KEEP_DAYS * 86400))
+    for call in [c for c, b in known.items() if b["last_reported"] < limit]:
+        del known[call]
+        dropped += 1
+    beacons["updated"] = time.time()
+    tmp = BEACON_FILE + ".tmp"
+    with open(tmp, "w") as fp:
+        json.dump(beacons, fp, indent=1)
+    os.replace(tmp, BEACON_FILE)
+    return added, updated, dropped
+
+
+async def beacon_loop() -> None:
+    # at start (if the saved list is older than 20 h), then daily at BEACON_HOUR_UTC; after an error retry hourly
+    due = not beacons["updated"] or time.time() - beacons["updated"] > 20 * 3600
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
+        while True:
+            ok = True
+            if due:
+                try:
+                    async with s.get(BEACON_URL) as r:
+                        rows = await r.json(content_type=None)
+                    a, u, d = merge_beacons(rows)
+                    print(f"beacons: {len(rows)} rows, {BEACON_BAND} within {BEACON_MAX_KM:.0f} km: "
+                          f"+{a} new, {u} updated, -{d} dropped, {len(beacons['beacons'])} kept")
+                except Exception as e:
+                    ok = False
+                    print(f"beacon refresh error: {e!r}")      # keep the old list
+            now = time.time()
+            nxt = (now // 86400) * 86400 + BEACON_HOUR_UTC * 3600
+            if nxt <= now:
+                nxt += 86400
+            await asyncio.sleep(nxt - now if ok else 3600)
+            due = True
+
+
+def beacons_response(request: web.Request) -> web.Response:
+    lst = sorted(beacons["beacons"].values(), key=lambda b: b["dist_km"])
+    return web.json_response({"updated": beacons["updated"], "band": BEACON_BAND, "max_km": BEACON_MAX_KM, "beacons": lst})
+
+
+# ---------- satellite TLEs ----------
+def tle_path(group: str) -> str:
+    return os.path.join(TLE_DIR, f"tle_{group}.txt")
+
+
+async def tle_loop() -> None:
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60),
+                                     headers={"User-Agent": "hamcam-telemetry (SQ6EMM)"}) as s:
+        while True:
+            for g in TLE_GROUPS:
+                try:
+                    age_h = (time.time() - os.path.getmtime(tle_path(g))) / 3600
+                except OSError:
+                    age_h = 1e9
+                if age_h < TLE_MAX_AGE_H:
+                    continue
+                try:
+                    async with s.get(TLE_URL.format(group=g)) as r:
+                        txt = await r.text()
+                    if r.status != 200 or "\n1 " not in txt:
+                        raise ValueError(f"HTTP {r.status}: {txt[:80]!r}")
+                    with open(tle_path(g) + ".tmp", "w") as fp:
+                        fp.write(txt)
+                    os.replace(tle_path(g) + ".tmp", tle_path(g))
+                    print(f"tle {g}: {txt.count(chr(10)) // 3} satellites")
+                except Exception as e:
+                    print(f"tle {g} refresh error: {e!r}")          # keep the old file
+            await asyncio.sleep(3600)
+
+
+async def tle_response(request: web.Request) -> web.Response:
+    g = request.match_info["group"]
+    if g not in TLE_GROUPS:
+        raise web.HTTPNotFound()
+    try:
+        with open(tle_path(g)) as fp:
+            return web.Response(text=fp.read(), content_type="text/plain")
+    except OSError:
+        raise web.HTTPServiceUnavailable()
+
+
+# ---------- SOTA summits visible from the station ----------
+def load_summits() -> dict:
+    try:
+        with open(SUMMIT_FILE) as fp:
+            return json.load(fp)
+    except (OSError, ValueError):
+        return {"updated": None, "station": None, "summits": []}
+
+
+summits = load_summits()
+
+
+def visible_summits(all_summits: list, st: dict) -> list:
+    """Above the horizon (earth curvature, refraction k=0.13), within SUMMIT_MAX_KM, and not behind a nearer summit
+    that appears higher at nearly the same bearing (+-0.7 deg). Intermediate terrain is not checked."""
+    R, K = 6371000.0, 0.13
+    pts = []
+    for s in all_summits:
+        d = distance_km(s["lat"], s["lon"], st) * 1000
+        if d < 500 or d > SUMMIT_MAX_KM * 1000:
+            continue
+        el = math.degrees(math.atan2(s["h"] - st["h"], d)) - math.degrees(d / (2 * R) * (1 - K))
+        pts.append({**s, "dist": d, "el": el, "az": bearing_deg(s["lat"], s["lon"], st)})
+    vis = sorted((p for p in pts if p["el"] > 0), key=lambda p: p["dist"])
+    return [p for p in vis if not any(n["dist"] < p["dist"] and abs((n["az"] - p["az"] + 540) % 360 - 180) < 0.7
+                                      and n["el"] > p["el"] + 0.02 for n in pts)]
+
+
+async def summit_loop() -> None:
+    api = "https://api2.sota.org.uk/api"
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
+        while True:
+            st = station()
+            stale = not summits["updated"] or time.time() - summits["updated"] > 7 * 86400
+            if stale or summits.get("station") != st:      # weekly, or right away when the station was changed
+                try:
+                    found = []
+                    for a in SOTA_ASSOCIATIONS:
+                        async with s.get(f"{api}/associations/{a}") as r:
+                            regions = [x["regionCode"] for x in (await r.json(content_type=None)).get("regions", [])]
+                        for reg in regions:
+                            async with s.get(f"{api}/regions/{a}/{reg}") as r:
+                                d = await r.json(content_type=None)
+                            today = time.strftime("%Y-%m-%d")
+                            found += [{"ref": x["summitCode"], "name": x["name"], "lat": x["latitude"], "lon": x["longitude"],
+                                       "h": x["altM"]} for x in d.get("summits") or []
+                                      if (x.get("validTo") or "9999")[:10] >= today and x.get("latitude") is not None]
+                    vis = visible_summits(found, st)
+                    summits.update({"updated": time.time(), "station": st, "summits": vis})
+                    with open(SUMMIT_FILE + ".tmp", "w") as fp:
+                        json.dump(summits, fp, ensure_ascii=False, indent=1)
+                    os.replace(SUMMIT_FILE + ".tmp", SUMMIT_FILE)
+                    print(f"summits: {len(found)} in {','.join(SOTA_ASSOCIATIONS)}, {len(vis)} visible within {SUMMIT_MAX_KM:.0f} km")
+                except Exception as e:
+                    print(f"summit refresh error: {e!r}")
+            await asyncio.sleep(3600)
+
+
+async def ws_handler(request: web.Request) -> web.WebSocketResponse:
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+    clients.add(ws)
+    await ws.send_str(json.dumps(snapshot()))
+    try:
+        async for msg in ws:
+            # ping for clock-offset estimation: {"type":"ping","c":<client ms>}
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                m = json.loads(msg.data)
+                if m.get("type") == "ping":
+                    await ws.send_str(json.dumps({"type": "pong", "c": m.get("c"), "t": time.time()}))
+    finally:
+        clients.discard(ws)
+    return ws
+
+
+async def on_startup(app: web.Application) -> None:
+    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop()):
+        asyncio.create_task(coro)
+
+
+app = web.Application()
+app.router.add_get("/telemetry", ws_handler)
+app.router.add_get("/telemetry/state", lambda r: web.json_response(snapshot()))
+app.router.add_get("/telemetry/beacons", beacons_response)
+app.router.add_get("/telemetry/tle/{group}", tle_response)
+app.router.add_get("/telemetry/summits", lambda r: web.json_response({"updated": summits["updated"], "summits": [
+    {k: x[k] for k in ("ref", "name", "lat", "lon", "h")} for x in summits["summits"]]}))
+app.on_startup.append(on_startup)
+
+if __name__ == "__main__":
+    web.run_app(app, port=8000, access_log=None)
