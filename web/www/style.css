@@ -20,8 +20,18 @@ ham-video, #hud, #day {
 ham-video { display: block; background: #000; }
 ham-video video { object-fit: fill; }
 #hud, #day { pointer-events: none; }
+#day { position: relative; z-index: 0; } #hud { position: relative; z-index: 1; }   /* overlay stays above the (translucent) day picture */
 #day[hidden] { display: none; }
-#dayTag { position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--muted); background: rgba(8, 10, 14, .6);
+/* Day view blend slider: right edge of the picture, bottom = live, top = day picture */
+#dayFade { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column;
+  align-items: center; gap: 6px; padding: 8px 6px; background: rgba(8, 10, 14, .6); border: 1px solid #2b333d;
+  border-radius: 8px; touch-action: none; z-index: 2; }
+#dayFade[hidden] { display: none; }
+#dayFade .lbl { font-size: 11px; color: var(--muted); }
+#dayOpTxt { font-size: 12px; color: var(--accent); min-width: 3.2em; text-align: center; }
+#dayOp { writing-mode: vertical-lr; direction: rtl;   /* vertical range, minimum at the bottom */
+  width: 28px; height: min(40cqh, 300px); margin: 0; accent-color: var(--accent); cursor: ns-resize; }
+#dayTag { position: absolute; left: 10px; bottom: 10px; z-index: 2; font-size: 12px; color: var(--muted); background: rgba(8, 10, 14, .6);
   padding: 2px 7px; border-radius: 5px; pointer-events: none; }
 #hud.off { display: none; }
 

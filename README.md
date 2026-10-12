@@ -4,9 +4,9 @@ Live, low-latency view from a camera mounted on a rotating antenna (SQ6EMM, JO81
 knows where the antenna points: compass tape and elevation scale, local landmarks, 23 cm beacons, SOTA summits,
 aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites, and – with rsanttracker – rain/snow
 scatter cells, aircraft scatter candidates and the tropo state. Every layer can be switched on/off. The view zooms up to
-6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan). At night **Day** (`D` key) shows a
-daylight picture of the same direction in place of the video, a second click lays it 50 % over the live picture
-(needs a panorama from `tools/pano/`).
+6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan). At night **Day** (`D` key) lays a
+daylight picture of the same direction over the video; the slider on the right blends from live (bottom) to day
+(top) (needs a panorama from `tools/pano/`).
 From allowed networks the page can also steer the rotator: with **Control** on, a click turns the antenna to that
 point or object (az and el are sent), a click on an aircraft or satellite tracks it; the point-to field takes an azimuth (`213`, `213/10` = az/el),
 a locator (`JO80HK`) or a callsign (`SP6GWB`, looked up at qthdb.hamradio.pl); **STOP** / Esc stops at once.

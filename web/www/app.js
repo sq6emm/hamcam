@@ -853,9 +853,10 @@ addEventListener('resize', applyZoom);
 }
 
 // ---------- Day view: daylight panorama (panorama/panorama.json, optional HAMCAM_PANORAMA mount) instead of / over the
-// video, for finding objects at night. Button cycles: live -> day picture -> day 50 % over the video -> live ----------
-const day = { mode: 0, meta: null, view: null, loading: null };
-const DAY_MODES = [null, { op: 1, label: 'Day' }, { op: 0.5, label: 'Day 50%' }];
+// video, for finding objects at night. Day button / D key: on / off; the slider on the right blends it with the live
+// picture (bottom = live only, top = day picture only; remembered per browser) ----------
+const day = { mode: 0, meta: null, view: null, loading: null, op: 1 };
+try { const v = parseFloat(localStorage.getItem('hamcam.dayOpacity')); if (v >= 0 && v <= 1) day.op = v; } catch { /* no storage */ }
 tfetch('panorama/panorama.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(m => {
   if (!m || !m.width) return;
   day.view = new DayView($('day'), { W, H, hfov: cfg.hfov, f: q.has('hfov') ? null : cfg.f, k1: cfg.k1, k2: cfg.k2, pp: cfg.pp,
@@ -863,26 +864,34 @@ tfetch('panorama/panorama.json', { cache: 'no-cache' }).then(r => r.ok ? r.json(
   if (!day.view.supported) return;                     // no WebGL2: no button
   day.meta = m; $('dayBtn').hidden = false;
 }).catch(() => {});
-async function setDay(mode) {
-  if (mode && !day.view.ready) {
+function setDayOpacity(v) {
+  day.op = Math.min(1, Math.max(0, v));
+  $('day').style.opacity = day.op; $('dayOp').value = Math.round(day.op * 100);
+  $('dayOpTxt').textContent = `${Math.round(day.op * 100)}%`;
+  try { localStorage.setItem('hamcam.dayOpacity', String(day.op)); } catch { /* private mode */ }
+}
+async function setDay(on) {
+  if (on && !day.view.ready) {
     flash('Loading the daylight picture…', 20000);
     try { await (day.loading ||= day.view.load(day.meta, 'panorama/')); } catch (e) { day.loading = null; flash('Day picture failed to load'); return; }
     $('msg').hidden = true;
   }
-  day.mode = mode;
-  const m = DAY_MODES[mode];
-  $('day').hidden = !m; $('dayTag').hidden = !m;
-  $('dayBtn').classList.toggle('on', !!m); $('dayBtn').textContent = m ? m.label : 'Day';
-  if (!m) return;
-  $('day').style.opacity = m.op;
+  day.mode = on ? 1 : 0;
+  $('day').hidden = !on; $('dayTag').hidden = !on; $('dayFade').hidden = !on;
+  $('dayBtn').classList.toggle('on', on);
+  if (!on) return;
+  setDayOpacity(day.op);
   $('dayTag').textContent = `day picture ${day.meta.taken_utc || ''} UTC`;
   if (shownAz != null) day.view.render((shownAz + cfg.azOff + 360) % 360);
   else flash('No rotator position: the day picture needs the azimuth');
 }
-$('dayBtn').onclick = () => setDay((day.mode + 1) % DAY_MODES.length);
+$('dayBtn').onclick = () => setDay(!day.mode);
+$('dayOp').addEventListener('input', e => setDayOpacity(e.target.value / 100));
+for (const ev of ['pointerdown', 'pointermove', 'click', 'wheel', 'dblclick'])   // the slider is not a click / drag / zoom on the picture
+  $('dayFade').addEventListener(ev, e => e.stopPropagation(), { passive: true });
 document.addEventListener('keydown', e => {
   if (e.target.closest('input, textarea') || e.ctrlKey || e.metaKey || e.altKey || $('dayBtn').hidden) return;
-  if (e.key === 'd' || e.key === 'D') setDay((day.mode + 1) % DAY_MODES.length);
+  if (e.key === 'd' || e.key === 'D') setDay(!day.mode);
 });
 
 $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.classList.toggle('on'); };
@@ -1036,7 +1045,7 @@ async function screenshot() {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(v, 0, 0, w, h);
-  if (day.mode) { ctx.globalAlpha = DAY_MODES[day.mode].op; ctx.drawImage($('day'), 0, 0, w, h); ctx.globalAlpha = 1; }   // as on screen
+  if (day.mode) { ctx.globalAlpha = day.op; ctx.drawImage($('day'), 0, 0, w, h); ctx.globalAlpha = 1; }   // as on screen
 
   // HUD as it is right now, always included even if hidden on screen (call, locator and time are in the camera OSD)
   const svg = $('hud').cloneNode(true);
