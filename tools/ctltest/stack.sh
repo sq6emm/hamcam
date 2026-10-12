@@ -2,7 +2,7 @@
 # Isolated test stack for rotator control: fake rotctld + telemetry built from source + page on 127.0.0.1:8098.
 # The real rotator and the live installation are not touched. The test network gateway plays the front proxy, so a
 # browser/curl sending "X-Forwarded-For: 192.168.12.38" is treated as a LAN visitor.
-#   stack.sh up | down        (config: /etc/docker-compose/hamcam/config, ADSB_URL from its .env)
+#   [PDELAY=s] [ELMAX=deg] stack.sh up | down   (fake rotctld options; config: /etc/docker-compose/hamcam/config, ADSB_URL from its .env)
 set -e
 R=$(cd "$(dirname "$0")/../.." && pwd); W=$R/analysis-ctltest; E=/etc/docker-compose/hamcam
 case "$1" in
@@ -12,10 +12,10 @@ up)
   docker build -q --label owner=claude -f $R/telemetry/Dockerfile -t hamcam-telemetry:ctltest $R >/dev/null
   docker network create --label owner=claude hamcam-ctltest >/dev/null
   GW=$(docker network inspect hamcam-ctltest -f '{{(index .IPAM.Config 0).Gateway}}')
-  docker run -d --rm --name hamcam-fakerot --label owner=claude --network hamcam-ctltest -v $R/tools/ctltest/fake_rotctld.py:/f.py:ro python:3.12-slim python -u /f.py >/dev/null
+  docker run -d --rm --name hamcam-fakerot --label owner=claude --network hamcam-ctltest -e PDELAY=${PDELAY:-0} -e ELMAX=${ELMAX:-999} -v $R/tools/ctltest/fake_rotctld.py:/f.py:ro python:3.12-slim python -u /f.py >/dev/null
   docker run -d --rm --name hamcam-ctl-go2rtc --label owner=claude --network hamcam-ctltest --network-alias go2rtc -v $W/static:/s:ro -w /s python:3.12-slim python -m http.server 1985 >/dev/null
   docker run -d --rm --name hamcam-ctl-telemetry --label owner=claude --network hamcam-ctltest --network-alias telemetry --user $(id -u):$(id -g) \
-    -e ROTCTLD_HOST=hamcam-fakerot -e CONTROL_ALLOW=192.168.0.0/16 -e OBJECTS_FILE=/config/objects.json -e BEACON_FILE=/data/beacons.json \
+    -e ROTCTLD_HOST=hamcam-fakerot -e CONTROL_ALLOW=192.168.0.0/16 -e TRUSTED_PROXY=$GW -e OBJECTS_FILE=/config/objects.json -e BEACON_FILE=/data/beacons.json \
     -v $W/data:/data -v $E/config:/config:ro hamcam-telemetry:ctltest >/dev/null
   docker run -d --rm --name hamcam-ctl-web --label owner=claude --network hamcam-ctltest -p 127.0.0.1:8098:8080 -e TRUSTED_PROXY=$GW \
     -e ADSB_URL=$(sed -n 's/^ADSB_URL=//p' $E/.env) -v $R/web/www:/usr/share/nginx/html:ro \

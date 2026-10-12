@@ -1,5 +1,7 @@
-"""Fake rotctld for tests: p / P az el / S / anything else -> RPRT 0; simulated movement 10 deg/s; logs every command."""
-import asyncio, time
+"""Fake rotctld for tests: p / P az el / S / anything else -> RPRT 0; simulated movement 10 deg/s; logs every command.
+Env: PDELAY = seconds before answering P (provokes races), ELMAX = refuse P with el above it (RPRT -8, like an az-only model)."""
+import asyncio, os, time
+PDELAY = float(os.environ.get("PDELAY", "0")); ELMAX = float(os.environ.get("ELMAX", "999"))
 state = {"az": 122.0, "el": 0.0, "target": None}
 def log(*a): print(f"{time.strftime('%H:%M:%S')}", *a, flush=True)
 async def mover():
@@ -17,7 +19,11 @@ async def handle(r, w):
         c = line.decode().strip()
         if c == "p": w.write(f"{round(state['az'])}.00\n{state['el']:.2f}\n".encode())
         elif c.startswith("P "):
-            _, az, el = c.split(); state["target"] = float(az) % 360; state["el"] = float(el); log(f"CMD P az={az} el={el}"); w.write(b"RPRT 0\n")
+            _, az, el = c.split()
+            if float(el) > ELMAX: log(f"CMD P az={az} el={el} REFUSED (el > {ELMAX})"); w.write(b"RPRT -8\n")
+            else:
+                log(f"CMD P az={az} el={el} received"); await asyncio.sleep(PDELAY)
+                state["target"] = float(az) % 360; state["el"] = float(el); log(f"CMD P az={az} el={el} executed"); w.write(b"RPRT 0\n")
         elif c == "S": state["target"] = None; log("CMD S (stop)"); w.write(b"RPRT 0\n")
         else: w.write(b"RPRT 0\n")
         await w.drain()

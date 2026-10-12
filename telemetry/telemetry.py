@@ -47,6 +47,7 @@ TLE_GROUPS = [g for g in os.environ.get("TLE_GROUPS", "visual,amateur").split(",
 TLE_URL = os.environ.get("TLE_URL", "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle")
 TLE_MAX_AGE_H = float(os.environ.get("TLE_MAX_AGE_H", "12"))     # CelesTrak asks for at most a few downloads a day
 TLE_DIR = os.environ.get("TLE_DIR", "/data")
+TRUSTED_PROXY = os.environ.get("TRUSTED_PROXY", "").strip()   # same value as the web nginx: never a control client
 CONTROL_ALLOW = [ipaddress.ip_network(n.strip(), strict=False) for n in os.environ.get("CONTROL_ALLOW", "").split(",") if n.strip()]
 TRACK_STEP_DEG = float(os.environ.get("TRACK_STEP_DEG", "2"))
 TRACK_MIN_INTERVAL_S = float(os.environ.get("TRACK_MIN_INTERVAL_S", "3"))
@@ -73,11 +74,14 @@ clients: set[web.WebSocketResponse] = set()
 
 async def broadcast(msg: dict) -> None:
     data = json.dumps(msg)
-    for ws in list(clients):
+
+    async def send(ws):
         try:
-            await ws.send_str(data)
-        except Exception:
+            await asyncio.wait_for(ws.send_str(data), 2)
+        except Exception:                                # closed or not reading: drop it, never stall the others
             clients.discard(ws)
+            await ws.close()
+    await asyncio.gather(*(send(ws) for ws in list(clients)))
 
 
 def snapshot() -> dict:
@@ -95,6 +99,7 @@ async def rotator_loop() -> None:
             await broadcast(snapshot())
             await asyncio.sleep(ROT_POLL)
             continue
+        writer = None
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
             print(f"rotctld connected {ROT_HOST}:{ROT_PORT}")
@@ -127,6 +132,9 @@ async def rotator_loop() -> None:
             state["rot_ok"] = False
             await broadcast(snapshot())
             await asyncio.sleep(3)
+        finally:
+            if writer:
+                writer.close()
 
 
 def pick_fields(doc: dict) -> dict:
@@ -348,7 +356,12 @@ async def summit_loop() -> None:
     api = "https://api2.sota.org.uk/api"
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as s:
         while True:
-            st = station()
+            try:
+                st = station()
+            except (OSError, ValueError, KeyError) as e:     # e.g. objects.json being saved right now
+                print(f"summits: cannot read station ({e!r}), retry in 1 h")
+                await asyncio.sleep(3600)
+                continue
             stale = not summits["updated"] or time.time() - summits["updated"] > 7 * 86400
             if stale or summits.get("station") != st:      # weekly, or right away when the station was changed
                 try:
@@ -375,7 +388,7 @@ async def summit_loop() -> None:
 
 
 # ---------- rotator control: click-to-point and tracking (allowed client networks only) ----------
-control = {"last_cmd": None, "last_t": 0.0, "lease": 0.0}   # last commanded (az, el), when, tracking lease end
+control = {"last_cmd": None, "last_t": 0.0, "lease": 0.0, "stop_seq": 0}   # last commanded (az, el), when, lease end
 
 
 def client_ip(request: web.Request) -> str:
@@ -389,13 +402,19 @@ def control_allowed(ip: str) -> bool:
         a = ipaddress.ip_address(ip)
     except ValueError:
         return False
+    # if the front proxy did not pass a usable X-Forwarded-For, nginx reports the proxy itself - refuse that
+    if TRUSTED_PROXY and ip == TRUSTED_PROXY:
+        return False
     return any(a in n for n in CONTROL_ALLOW)
+
+
+rot_lock = asyncio.Lock()                               # one control command at a time
 
 
 async def rotctl(cmd: str) -> str:
     """One command on a short separate rotctld connection (the poll loop keeps its own)."""
     if not ROT_HOST:
-        return "simulated"
+        return "RPRT 0"
     reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
     try:
         writer.write((cmd + "\n").encode())
@@ -406,12 +425,26 @@ async def rotctl(cmd: str) -> str:
 
 
 async def point(az: float, el: float) -> str:
+    """Send P az el. A STOP requested meanwhile cancels it; anything but RPRT 0 is an error (state unchanged)."""
     az = round(az % 360.0, 2) % 360.0
     el = round(min(max(el, ROT_EL_MIN), ROT_EL_MAX), 2)
-    reply = await rotctl(f"P {az:.2f} {el:.2f}")       # 0.01 deg; GS-232 controllers use whole degrees
-    control.update(last_cmd=(az, el), last_t=time.time())
+    seq = control["stop_seq"]
+    control["last_t"] = time.time()                      # rate limits count from the request, not the reply
+    async with rot_lock:
+        if control["stop_seq"] != seq:                   # STOP came in while we waited: do not move
+            return "cancelled by STOP"
+        reply = await rotctl(f"P {az:.2f} {el:.2f}")     # 0.01 deg; GS-232 controllers use whole degrees
+    if reply != "RPRT 0":
+        raise web.HTTPBadGateway(text=f"rotctld refused P {az:.2f} {el:.2f}: {reply or 'no reply'}")
+    control["last_cmd"] = (az, el)
     state.update(target_az=round(az, 2), target_el=round(el, 2))
     return reply
+
+
+async def stop() -> str:
+    control["stop_seq"] += 1                             # cancels P commands still waiting for the lock
+    async with rot_lock:
+        return await rotctl("S")
 
 
 def off_by(a: tuple, b: tuple) -> float:
@@ -438,12 +471,15 @@ async def control_post(request: web.Request) -> web.Response:
         az, el = (float(m.get("az", 0)), float(m.get("el", 0))) if cmd in ("goto", "track") else (None, None)
     except (ValueError, KeyError, TypeError):
         raise web.HTTPBadRequest(text="bad request")
+    # JSON allows NaN/Infinity; never pass those (or out-of-range values) towards the rotator
+    if az is not None and not (math.isfinite(az) and math.isfinite(el) and 0 <= az <= 360 and -90 <= el <= 90):
+        raise web.HTTPBadRequest(text="az must be 0..360 and el -90..90")
     now = time.time()
     reply = None
     if cmd == "stop":
-        reply = await rotctl("S")
         state["tracking"] = None
         control["lease"] = 0
+        reply = await stop()
     elif cmd == "untrack":
         state["tracking"] = None
         control["lease"] = 0
@@ -456,11 +492,12 @@ async def control_post(request: web.Request) -> web.Response:
     elif cmd == "track":
         name = str(m.get("name") or m.get("id") or "?")[:40]
         new = state["tracking"] != name
+        since = now - control["last_t"]
+        if since >= 1.0 and (new or control["last_cmd"] is None or
+                             (off_by((az, el), control["last_cmd"]) >= TRACK_STEP_DEG and since >= TRACK_MIN_INTERVAL_S)):
+            reply = await point(az, el)                  # raises on rotctld errors: tracking is then not (re)started
         state["tracking"] = name
         control["lease"] = now + TRACK_LEASE_S
-        if new or (control["last_cmd"] is None) or (
-                off_by((az, el), control["last_cmd"]) >= TRACK_STEP_DEG and now - control["last_t"] >= TRACK_MIN_INTERVAL_S):
-            reply = await point(az, el)
     else:
         raise web.HTTPBadRequest(text="unknown cmd")
     if reply is not None or cmd != "track":
@@ -496,6 +533,8 @@ async def locate(request: web.Request) -> web.Response:
     out = {k: d.get(k) for k in ("call", "locator", "confidence", "level", "last_seen", "mobile")}
     if not out["locator"]:
         raise web.HTTPNotFound(text=f"{call}: no locator")
+    if len(locate_cache) > 500:
+        locate_cache.clear()
     locate_cache[call] = (time.time(), out)
     return web.json_response(out)
 

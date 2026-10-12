@@ -220,8 +220,13 @@ function drawMarks(az) {
     } else {
       el('path', { d: `M${tx} 84 L${tx + 8} 92 L${tx} 100 L${tx - 8} 92 Z`, fill: it.color, stroke: '#000', 'stroke-width': 1.5 }, g);
     }
-    const p = camera.project(it.az, it.el);
-    if (!p.front) continue;
+    let p = camera.project(it.az, it.el);
+    // outside the picture (above/below the frame, or near the zenith) the lens model does not apply and fails far
+    // off-axis: such objects are placed by the compass tape (horizon x) instead of the full projection
+    if (!p.front || p.y <= 110 || p.y >= H - 10) {
+      if (it.kind === 'radio' || it.kind === 'beacon') { if (!p.front) continue; }   // bearing lines: horizon height
+      else p = { x: tx, y: it.el > 0 ? 0 : H, front: true };
+    }
     if (it.kind === 'radio' || it.kind === 'beacon') {
       // never visible: dashed bearing line through the picture + label, no point
       const ln = el('line', { x1: p.x, y1: 110, x2: p.x, y2: H - 60, stroke: it.color, 'stroke-width': 2 }, g);
@@ -469,6 +474,7 @@ fetch('telemetry/control', { cache: 'no-store' }).then(r => r.json())
   .then(d => { if (d.allowed) $('ctl').hidden = false; }).catch(() => { /* control not available */ });
 $('ctl').onclick = () => {
   ctlOn = !ctlOn;
+  if (!ctlOn && track) { const n = track.name; track = null; ctl({ cmd: 'untrack' }); flash(`Rotator: tracking ${n} ended`); }
   $('ctl').classList.toggle('on', ctlOn); $('stopBtn').hidden = !ctlOn; $('gotoIn').hidden = !ctlOn;
   $('frame').classList.toggle('ctl', ctlOn);
 };
@@ -674,7 +680,10 @@ function connectTelemetry() {
       clockOffset = m.t * 1000 + (now - m.c) / 2 - now;
     } else if (m.type === 'state') {
       tele = m;
-      if (track && !m.tracking && Date.now() - track.since > 3000) track = null;
+      if (track && Date.now() - track.since > 3000 && m.tracking !== track.name) {   // ended or taken over by another viewer
+        if (m.tracking) flash(`Rotator: now tracking ${m.tracking} (another viewer)`);
+        track = null;
+      }
       if (m.az != null && m.rot_ok) {
         azHist.push([m.t * 1000, m.az]);
         while (azHist.length > 2 && azHist[1][0] < m.t * 1000 - 10000) azHist.shift();
@@ -683,8 +692,8 @@ function connectTelemetry() {
     }
   };
   ws.onopen = () => { teleOk = true; ws.send(JSON.stringify({ type: 'ping', c: Date.now() })); };
-  ws.onclose = () => { teleOk = false; setTimeout(connectTelemetry, 2000); };
-  setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'ping', c: Date.now() })), 30000);
+  ws.onclose = () => { teleOk = false; clearInterval(ping); setTimeout(connectTelemetry, 2000); };
+  const ping = setInterval(() => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'ping', c: Date.now() })), 30000);
 }
 connectTelemetry();
 drawTape(0);
@@ -727,7 +736,7 @@ async function screenshot() {
   }
 
   const az = shownAz != null ? ((shownAz + cfg.azOff + 360) % 360).toFixed(1) : 'na';   // true bearing
-  const name = `SQ6EMM_${when.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_')}Z_az${az}.jpg`;
+  const name = `${ST.call}_${when.toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '_')}Z_az${az}.jpg`;
   const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.95));
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = name;
