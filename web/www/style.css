@@ -12,21 +12,24 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 #frame { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; container-type: size; }
 
 /* video + HUD share one 4:3 box that fits the viewport (HUD styling is inside the SVG) */
-ham-video, #hud {
+ham-video, #hud, #day {
   grid-area: 1 / 1;
   width: min(100cqw, 100cqh * 4 / 3);           /* the frame's own size: works with a one- or two-row bar */
   aspect-ratio: 4 / 3;
 }
 ham-video { display: block; background: #000; }
 ham-video video { object-fit: fill; }
-#hud { pointer-events: none; }
+#hud, #day { pointer-events: none; }
+#day[hidden] { display: none; }
+#dayTag { position: absolute; left: 10px; top: 10px; font-size: 12px; color: var(--muted); background: rgba(8, 10, 14, .6);
+  padding: 2px 7px; border-radius: 5px; pointer-events: none; }
 #hud.off { display: none; }
 
 #msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   background: rgba(8, 10, 14, 0.8); border: 1px solid var(--accent); border-radius: 8px;
   padding: 8px 14px; font-size: 16px; pointer-events: none; }
 
-/* compact bar: one row down to ~1300 px with Control on (~1110 px without); when it runs out of room it wraps to a
+/* compact bar: one row down to ~1360 px with Control on (~1095 px without); when it runs out of room it wraps to a
    second row, nothing is hidden or scrolled away */
 #bar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; min-height: 44px;
   border-top: 1px solid #1d232b; flex-wrap: wrap; row-gap: 6px; }
@@ -37,8 +40,8 @@ ham-video video { object-fit: fill; }
 #clock { padding-left: 6px; color: var(--muted); white-space: nowrap; }
 #bar .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; row-gap: 6px; }   /* overlay switches | page actions */
 #bar .actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; margin-left: 8px; }   /* wraps as one group, right-aligned */
-@media (max-width: 1140px) { #clock .date { display: none; } }          /* time only (bar needs ~1124 px with the date) */
-@media (max-width: 1410px) { #bar.ctlon #clock .date { display: none; } } /* Control on: field + STOP need ~270 px more */
+@media (max-width: 1195px) { #clock .date { display: none; } }          /* time only (bar needs ~1190 px with the date) */
+@media (max-width: 1455px) { #bar.ctlon #clock .date { display: none; } } /* Control on: field + STOP need ~260 px more */
 @media (max-width: 640px) {
   #bar { padding: 6px 8px; }
   #bar .actions { justify-content: flex-start; }
@@ -48,7 +51,7 @@ ham-video video { object-fit: fill; }
 #frame.ctl { cursor: crosshair; }
 #frame { touch-action: none; }                                   /* pinch / drag zoom the picture, not the page */
 #frame.zoomed { cursor: grab; } #frame.zoomed.ctl { cursor: crosshair; } #frame.panning { cursor: grabbing; }
-ham-video, #hud { transform-origin: 0 0; }
+ham-video, #hud, #day { transform-origin: 0 0; }
 #bar button.zb { min-width: 2em; padding: 4px 4px; }
 #zoomRst { min-width: 3.4em; }
 #bar input { background: #0d1117; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px; padding: 4px 7px; font: inherit; font-size: 13px; width: 10.5em; }

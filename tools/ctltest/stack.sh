@@ -7,7 +7,7 @@ set -e
 R=$(cd "$(dirname "$0")/../.." && pwd); W=$R/analysis-ctltest; E=/etc/docker-compose/hamcam
 case "$1" in
 up)
-  mkdir -p $W/data $W/static && cp $R/telemetry/data/* $W/data/ 2>/dev/null || true
+  mkdir -p $W/data $W/static $R/web/www/panorama && cp $R/telemetry/data/* $W/data/ 2>/dev/null || true
   for f in video-rtc.js video-stream.js; do curl -s -o $W/static/$f http://127.0.0.1:8097/$f; done
   docker build -q --label owner=claude -f $R/telemetry/Dockerfile -t hamcam-telemetry:ctltest $R >/dev/null
   docker network create --label owner=claude hamcam-ctltest >/dev/null
@@ -18,7 +18,7 @@ up)
     -e ROTCTLD_HOST=hamcam-fakerot -e RSANT_URL="$(sed -n 's/^RSANT_URL=//p' $E/.env)" -e WEATHER_URL="$(sed -n 's/^WEATHER_URL=//p' $E/.env)" -e WEATHER_FIELDS="$(sed -n 's/^WEATHER_FIELDS=//p' $E/.env)" -e CONTROL_ALLOW="${CONTROL_ALLOW:-192.168.0.0/16}" -e TRUSTED_PROXY=$GW -e OBJECTS_FILE=/config/objects.json -e BEACON_FILE=/data/beacons.json \
     -v $W/data:/data -v $E/config:/config:ro hamcam-telemetry:ctltest >/dev/null
   docker run -d --rm --name hamcam-ctl-web --label owner=claude --network hamcam-ctltest -p 127.0.0.1:8098:8080 -e TRUSTED_PROXY=$GW \
-    -e ADSB_URL=$(sed -n 's/^ADSB_URL=//p' $E/.env) -v $R/web/www:/usr/share/nginx/html:ro \
+    -e ADSB_URL=$(sed -n 's/^ADSB_URL=//p' $E/.env) -v $R/web/www:/usr/share/nginx/html:ro $( [ -d $R/panorama/web ] && echo -v $R/panorama/web:/usr/share/nginx/html/panorama:ro ) \
     -v $R/web/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro -v $E/config:/config:ro nginxinc/nginx-unprivileged:1.29-alpine >/dev/null
   echo "test stack up: http://127.0.0.1:8098/  (proxy = $GW; logs: docker logs hamcam-fakerot / hamcam-ctl-telemetry)" ;;
 down)

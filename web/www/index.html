@@ -11,6 +11,7 @@
 <main id="stage">
   <div id="frame">
     <ham-video id="video"></ham-video>
+    <canvas id="day" hidden></canvas>
     <!-- Entire HUD lives in this SVG (styles inline) so screenshots can render it onto the frame -->
     <svg id="hud" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" preserveAspectRatio="none" aria-hidden="true">
       <style>
@@ -42,11 +43,13 @@
       <g id="wx"><text x="1576" y="1100" text-anchor="end"></text></g>
     </svg>
     <div id="msg" hidden></div>
+    <div id="dayTag" hidden></div>
   </div>
   <nav id="bar">
     <a class="title" href="https://github.com/sq6emm/hamcam" target="_blank" rel="noopener" title="hamcam on GitHub">hamcam</a>
     <span class="grp">
     <button id="hudToggle">Overlay</button>
+    <button id="dayBtn" hidden title="daylight picture of the same direction instead of the video (D key): click again for 50 % over the video, again for live only">Day</button>
     <button id="lyWx" title="weather station">Wx</button>
     <button id="lyBeacons" title="23 cm beacons + radio stations">Beacons</button>
     <button id="lyPoi" title="local points of interest">POI</button>

@@ -3,6 +3,7 @@
 //   ?hfov= &pitch= &roll= &azoff= &azdelay= &bx= &by=
 import { VideoRTC } from './video-rtc.js';
 import { Camera, azElOf, bodies, locatorToLatLon } from './sky.js';
+import { DayView } from './day.js';
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 const q = new URLSearchParams(location.search);
@@ -793,7 +794,7 @@ function applyZoom() {
   zoom.x = clampN(zoom.x, 1 - zoom.s, 0); zoom.y = clampN(zoom.y, 1 - zoom.s, 0);   // the picture always covers its box
   const w = $('video').offsetWidth, h = $('video').offsetHeight;
   const t = zoom.s === 1 ? '' : `translate(${zoom.x * w}px, ${zoom.y * h}px) scale(${zoom.s})`;
-  $('video').style.transform = t; $('hud').style.transform = t;
+  $('video').style.transform = t; $('hud').style.transform = t; $('day').style.transform = t;
   $('frame').classList.toggle('zoomed', zoom.s > 1);
   $('zoomRst').textContent = `${zoom.s.toFixed(1).replace(/\.0$/, '')}×`;
 }
@@ -850,6 +851,39 @@ addEventListener('resize', applyZoom);
     zoom.x += dx / $('video').offsetWidth; zoom.y += dy / $('video').offsetHeight; applyZoom();
   }
 }
+
+// ---------- Day view: daylight panorama (panorama/panorama.json, optional HAMCAM_PANORAMA mount) instead of / over the
+// video, for finding objects at night. Button cycles: live -> day picture -> day 50 % over the video -> live ----------
+const day = { mode: 0, meta: null, view: null, loading: null };
+const DAY_MODES = [null, { op: 1, label: 'Day' }, { op: 0.5, label: 'Day 50%' }];
+tfetch('panorama/panorama.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(m => {
+  if (!m || !m.width) return;
+  day.view = new DayView($('day'), { W, H, hfov: cfg.hfov, f: q.has('hfov') ? null : cfg.f, k1: cfg.k1, k2: cfg.k2, pp: cfg.pp,
+    pitch: cfg.pitch, roll: cfg.roll, tilt: q.has('notilt') ? null : cam0.tilt }, W, H);
+  if (!day.view.supported) return;                     // no WebGL2: no button
+  day.meta = m; $('dayBtn').hidden = false;
+}).catch(() => {});
+async function setDay(mode) {
+  if (mode && !day.view.ready) {
+    flash('Loading the daylight picture…', 20000);
+    try { await (day.loading ||= day.view.load(day.meta, 'panorama/')); } catch (e) { day.loading = null; flash('Day picture failed to load'); return; }
+    $('msg').hidden = true;
+  }
+  day.mode = mode;
+  const m = DAY_MODES[mode];
+  $('day').hidden = !m; $('dayTag').hidden = !m;
+  $('dayBtn').classList.toggle('on', !!m); $('dayBtn').textContent = m ? m.label : 'Day';
+  if (!m) return;
+  $('day').style.opacity = m.op;
+  $('dayTag').textContent = `day picture ${day.meta.taken_utc || ''} UTC`;
+  if (shownAz != null) day.view.render((shownAz + cfg.azOff + 360) % 360);
+  else flash('No rotator position: the day picture needs the azimuth');
+}
+$('dayBtn').onclick = () => setDay((day.mode + 1) % DAY_MODES.length);
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea') || e.ctrlKey || e.metaKey || e.altKey || $('dayBtn').hidden) return;
+  if (e.key === 'd' || e.key === 'D') setDay((day.mode + 1) % DAY_MODES.length);
+});
 
 $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.classList.toggle('on'); };
 // layer switches (remembered per browser)
@@ -912,6 +946,7 @@ function frame(ts) {
   const tAz = az == null ? null : (az + cfg.azOff + 360) % 360;
   $('az').textContent = tAz == null ? '---.-°' : `${tAz.toFixed(1).padStart(5, '0')}°`;
   if (az != null) { drawTape(tAz); drawMarks(az); }
+  if (day.mode) day.view.render(tAz);
   drawProbe();
 }
 requestAnimationFrame(frame);
@@ -1001,6 +1036,7 @@ async function screenshot() {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(v, 0, 0, w, h);
+  if (day.mode) { ctx.globalAlpha = DAY_MODES[day.mode].op; ctx.drawImage($('day'), 0, 0, w, h); ctx.globalAlpha = 1; }   // as on screen
 
   // HUD as it is right now, always included even if hidden on screen (call, locator and time are in the camera OSD)
   const svg = $('hud').cloneNode(true);

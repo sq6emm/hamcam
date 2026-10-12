@@ -68,6 +68,7 @@ services:
     volumes:
       - ./config:/config:ro              # objects.json, served at /objects.json
       - ${HAMCAM_ANALYSIS:-./analysis}:/usr/share/nginx/html/analysis:ro   # optional calibration report, served at /analysis/
+      - ${HAMCAM_PANORAMA:-./panorama}:/usr/share/nginx/html/panorama:ro   # optional daylight panorama for the Day view (tools/pano)
     ports:
       - "${HAMCAM_WEB_PORT:-8097}:8080"
     depends_on: [go2rtc, telemetry]

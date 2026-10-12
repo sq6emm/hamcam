@@ -25,8 +25,8 @@ const mk = await p.evaluate(() => window.__hits.marks.find(h => !h.line));
 if (mk) { [x, y] = await hud2px(p, mk.x + 6, mk.y + 4); await p.mouse.click(x, y); await sleep(1500); console.log('2 marker click', mk.name, '-> msg:', await p.$eval('#msg', e => e.textContent)); }
 else console.log('2 no marker in view');
 await sleep(8000);
-// 3) track the nearest aircraft that would be drawn: point there first, then click its box
-const pl = (await p.evaluate(() => window.__planeList())).filter(q => q.el > 0.5 && q.dist < 60000).sort((a, b) => a.dist - b.dist)[0];
+// 3) track the nearest aircraft that would be drawn (below the top edge of the picture, ~+22 deg): point there first, then click its box
+const pl = (await p.evaluate(() => window.__planeList())).filter(q => q.el > 0.5 && q.el < 18 && q.dist < 60000).sort((a, b) => a.dist - b.dist)[0];
 if (!pl) { console.log('3 no aircraft within 60 km right now'); } else {
   console.log(`3 aircraft ${pl.id} az ${pl.az.toFixed(1)} el ${pl.el.toFixed(1)} ${(pl.dist / 1000).toFixed(0)} km - pointing there first`);
   await p.evaluate(az => fetch('telemetry/control', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Hamcam-Control': '1' },

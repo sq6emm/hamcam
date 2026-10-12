@@ -5,3 +5,4 @@
 !telemetry/telemetry.py
 !deploy/objects.json
 web/www/analysis
+web/www/panorama

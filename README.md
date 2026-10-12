@@ -4,7 +4,9 @@ Live, low-latency view from a camera mounted on a rotating antenna (SQ6EMM, JO81
 knows where the antenna points: compass tape and elevation scale, local landmarks, 23 cm beacons, SOTA summits,
 aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites, and – with rsanttracker – rain/snow
 scatter cells, aircraft scatter candidates and the tropo state. Every layer can be switched on/off. The view zooms up to
-6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan).
+6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan). At night **Day** (`D` key) shows a
+daylight picture of the same direction in place of the video, a second click lays it 50 % over the live picture
+(needs a panorama from `tools/pano/`).
 From allowed networks the page can also steer the rotator: with **Control** on, a click turns the antenna to that
 point or object (az and el are sent), a click on an aircraft or satellite tracks it; the point-to field takes an azimuth (`213`, `213/10` = az/el),
 a locator (`JO80HK`) or a callsign (`SP6GWB`, looked up at qthdb.hamradio.pl); **STOP** / Esc stops at once.
@@ -49,6 +51,9 @@ compose files live elsewhere).
 - `calib/distortion.py` – lens model (f, k1, k2, optical centre, roll) from frames taken with the rotator as a turntable
 - `tilt/` – mast / rotation-axis tilt from roof edges (LiDAR surface model + OSM buildings)
 - `calib/blink_measure.py` – az/el of (blinking) lights from a short video
+- `pano/` – daylight panorama for the Day view: `capture.sh` turns the rotator once round (20° steps) and grabs
+  frames, `build.py` stitches them in true az/el through the camera model (masks in `osd.json` next to the frames:
+  OSD text, antenna boom). Re-run after a camera model change.
 - `browser/` – headless Chromium tests: screenshots, overlay timing vs video, layer switches
 
 All configuration is in **/etc/docker-compose/hamcam/**:
@@ -74,6 +79,7 @@ re-reads it on its next refresh).
 | `HAMCAM_DATA`, `HAMCAM_UID`, `HAMCAM_GID` | telemetry | persistent data directory and the uid:gid that writes it |
 | `HAMCAM_WEB_PORT` | web | host port of the page (8097) |
 | `HAMCAM_ANALYSIS` | web | optional directory with a calibration report, served read-only at `/analysis/` (default `./analysis`) |
+| `HAMCAM_PANORAMA` | web | optional directory with the daylight panorama (`tools/pano/build.py` output), served at `/panorama/`; the page shows the Day button only when it exists (default `./panorama`) |
 | `CAMERA_MAIN_URL` | go2rtc | RTSP URL of the camera main stream, incl. user/password (required) |
 | `CAMERA_SUB_URL` | go2rtc | RTSP URL of the sub stream (optional) |
 | `WEBRTC_CANDIDATE_LAN` | go2rtc | `host:port` LAN viewers connect to for WebRTC media (e.g. `192.168.12.12:8556`) |
