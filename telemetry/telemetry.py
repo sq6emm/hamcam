@@ -21,6 +21,7 @@ Env:
                                list is kept in BEACON_FILE and a beacon is dropped only when QRT or unreported > KEEP_DAYS
 """
 import asyncio
+import datetime
 import ipaddress
 import json
 import math
@@ -212,6 +213,19 @@ def load_beacons() -> dict:
 beacons = load_beacons()
 
 
+def utc_iso(v) -> str | None:
+    """Any ISO 8601 date/time (Z, offset, space separator, date only) or epoch number -> 'YYYY-MM-DDTHH:MM:SS' UTC."""
+    try:
+        if isinstance(v, (int, float)):
+            t = datetime.datetime.fromtimestamp(v, datetime.timezone.utc)
+        else:
+            t = datetime.datetime.fromisoformat(str(v).strip().replace("Z", "+00:00"))
+            t = t.replace(tzinfo=datetime.timezone.utc) if t.tzinfo is None else t.astimezone(datetime.timezone.utc)
+        return t.strftime("%Y-%m-%dT%H:%M:%S")
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
 def merge_beacons(rows: list) -> tuple[int, int, int]:
     known = beacons["beacons"]
     st = station()
@@ -233,8 +247,9 @@ def merge_beacons(rows: list) -> tuple[int, int, int]:
         if dist > BEACON_MAX_KM:
             continue
         old = known.get(call)
-        last = r.get("last_reported") or ""
-        if old and old["last_reported"] > last and old.get("confidence") == "perfect":
+        # the API lists only recently reported beacons: an unreadable date counts as "reported now"
+        last = utc_iso(r.get("last_reported")) or time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())
+        if old and (utc_iso(old.get("last_reported")) or "") > last and old.get("confidence") == "perfect":
             continue            # keep the newer / better entry when the API lists a beacon twice
         freq = (r.get("static_freq") or r.get("spotted_freq") or 0) / 1e6
         known[call] = {"name": call, "locator": loc, "freq": round(freq, 3), "dist_km": round(dist),
@@ -243,7 +258,7 @@ def merge_beacons(rows: list) -> tuple[int, int, int]:
         added += old is None
         updated += old is not None
     limit = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(time.time() - BEACON_KEEP_DAYS * 86400))
-    for call in [c for c, b in known.items() if b["last_reported"] < limit]:
+    for call in [c for c, b in known.items() if (utc_iso(b.get("last_reported")) or limit) < limit]:
         del known[call]
         dropped += 1
     beacons["updated"] = time.time()

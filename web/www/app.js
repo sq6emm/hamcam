@@ -6,7 +6,8 @@ import { Camera, azElOf, bodies, locatorToLatLon } from './sky.js';
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 const q = new URLSearchParams(location.search);
-const scene = await fetch('objects.json', { cache: 'no-cache' }).then(r => r.json());
+const tfetch = (u, o = {}, ms = 10000) => fetch(u, { ...o, signal: AbortSignal.timeout(ms) });   // no request hangs forever
+const scene = await tfetch('objects.json', { cache: 'no-cache' }).then(r => r.json());
 const num = (k, d) => (q.has(k) ? parseFloat(q.get(k)) : d);
 const cam0 = scene.camera;
 const cfg = {
@@ -55,7 +56,7 @@ try {                                                    // the viewer's own cho
 document.title = `${ST.call} ${DISP.title || 'antenna cam'}`;
 async function loadBeacons() {
   try {
-    const get = (on, u) => on ? fetch(u, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve({ beacons: [], summits: [] });
+    const get = (on, u) => on ? tfetch(u, { cache: 'no-store' }).then(r => r.json()).catch(() => null) : Promise.resolve({ beacons: [], summits: [] });
     const [d, sm] = await Promise.all([get(enabled('beacons'), 'telemetry/beacons'), get(enabled('summits'), 'telemetry/summits')]);
     scene.objects = [...fixedObjects,
       ...(d ? d.beacons.map(b => placeObject({ ...b, kind: 'beacon' })) : beaconsNow()),
@@ -279,11 +280,12 @@ const PLANE_COL = '#5eead4';
 const GEOID_N = DISP.geoid_n_m ?? 0;                // geoid height above WGS84 at the station (m): alt_geom is ellipsoidal, h is ASL
 const VIDEO_LAG = DISP.video_lag_s ?? 0.45;         // camera -> browser (s): show aircraft/satellites where they were when the frame was taken
 const ADSB_KM = num('adsbkm', DISP.adsb_max_km ?? 60);   // farther aircraft are not visible in the picture anyway
-let planes = [];
+let planes = [], adsbBusy = false, adsbFails = 0;
 async function pollAdsb() {
-  if (!enabled('planes')) return;
+  if (!enabled('planes') || adsbBusy) return;          // polled every second: never stack requests
+  adsbBusy = true;
   try {
-    const d = await fetch('adsb/aircraft.json', { cache: 'no-store' }).then(r => r.json());
+    const d = await tfetch('adsb/aircraft.json', { cache: 'no-store' }, 3000).then(r => r.json());
     planes = d.aircraft.filter(p => p.lat != null && p.seen_pos < 20 && p.alt_baro !== 'ground'
                                     && (typeof p.alt_geom === 'number' || typeof p.alt_baro === 'number'))
       .map(p => ({
@@ -294,7 +296,9 @@ async function pollAdsb() {
         v: (p.gs || 0) * 0.514444, trk: (p.track || 0) * D2R, vz: ((p.geom_rate ?? p.baro_rate) || 0) * 0.00508,
         t: d.now - p.seen_pos,
       }));
-  } catch { planes = []; }
+    adsbFails = 0;
+  } catch { if (++adsbFails >= 5) planes = []; }      // one slow or lost poll does not wipe the aircraft (or end tracking)
+  finally { adsbBusy = false; }
 }
 pollAdsb(); setInterval(pollAdsb, 1000);
 
@@ -358,7 +362,7 @@ async function loadTle() {
   for (const [key, g] of Object.entries(SAT)) {
     if (!enabled(key)) continue;
     try {
-      const L = (await fetch(g.url, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })).split(/\r?\n/);
+      const L = (await tfetch(g.url, { cache: 'no-store' }, 30000).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })).split(/\r?\n/);
       const recs = [];
       for (let i = 1; i + 1 < L.length; i++)
         if (L[i].startsWith('1 ') && L[i + 1].startsWith('2 ')) recs.push({ name: L[i - 1].trim(), rec: satellite.twoline2satrec(L[i], L[i + 1]) });
@@ -464,13 +468,13 @@ const wrap360 = a => ((a % 360) + 360) % 360;
 const deg = v => `${+v.toFixed(2)}°`;                  // up to 0.01 deg, no trailing zeros
 async function ctl(body) {
   try {
-    const r = await fetch('telemetry/control', { method: 'POST', cache: 'no-store',
+    const r = await tfetch('telemetry/control', { method: 'POST', cache: 'no-store',
       headers: { 'Content-Type': 'application/json', 'X-Hamcam-Control': '1' }, body: JSON.stringify(body) });
     if (!r.ok) { flash(`Rotator: ${(await r.text()).slice(0, 80)}`); return null; }
     return await r.json();
   } catch { flash('Rotator: no connection'); return null; }
 }
-fetch('telemetry/control', { cache: 'no-store' }).then(r => r.json())
+tfetch('telemetry/control', { cache: 'no-store' }).then(r => r.json())
   .then(d => { if (d.allowed) $('ctl').hidden = false; }).catch(() => { /* control not available */ });
 $('ctl').onclick = () => {
   ctlOn = !ctlOn;
@@ -521,7 +525,7 @@ async function pointTo(text) {
     let loc;
     if (LOC_RE.test(s)) { loc = s.toUpperCase(); name = loc; info = loc; }
     else if (/^[A-Z0-9/]{3,15}$/i.test(s)) {
-      const r = await fetch(`telemetry/locate/${encodeURIComponent(s.toUpperCase())}`, { cache: 'no-store' }).catch(() => null);
+      const r = await tfetch(`telemetry/locate/${encodeURIComponent(s.toUpperCase())}`, { cache: 'no-store' }, 15000).catch(() => null);
       if (!r || !r.ok) { flash(r ? (await r.text()).slice(0, 80) : 'Callsign lookup: no connection'); return; }
       const d = await r.json();
       loc = d.locator; name = d.call; info = `${d.call} ${d.locator}${d.level ? ` (${d.level})` : ''}`;
@@ -652,10 +656,10 @@ function setLines(gid, lines, dy = 34) {
   }));
 }
 
-let lastWx = null;
+let lastWx = null, wxShown = null;
 function showWeather(wx) {
   lastWx = wx;
-  if (!layers.weather || !wx || typeof wx !== 'object') { setLines('wx', []); return; }
+  if (!layers.weather || !wx || typeof wx !== 'object') { if (wxShown !== '') { setLines('wx', []); wxShown = ''; } return; }
   // fields are picked server-side (WEATHER_FIELDS): {name: {value, unit}}
   const v = k => wx[k] && wx[k].value;
   const lines = [];
@@ -666,6 +670,9 @@ function showWeather(wx) {
     lines.push(`wind ${v('wind').toFixed(1)} m/s${dir}`);
     if (v('gust') != null) lines.push(`gust ${v('gust').toFixed(1)} m/s`);
   }
+  const key = lines.join('\n');                       // state arrives 10x/s: touch the DOM only when the text changes
+  if (key === wxShown) return;
+  wxShown = key;
   setLines('wx', lines);
   const t = $('wx').querySelector('text');             // bottom-right corner, grows upwards
   t.setAttribute('x', W - 14); t.setAttribute('y', H - 14 - (lines.length - 1) * 34);
