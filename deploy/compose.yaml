@@ -67,6 +67,7 @@ services:
       TRUSTED_PROXY: ${TRUSTED_PROXY:-127.0.0.1}       # front proxy whose X-Forwarded-For is trusted (client IP for control)
     volumes:
       - ./config:/config:ro              # objects.json, served at /objects.json
+      - ${HAMCAM_ANALYSIS:-./analysis}:/usr/share/nginx/html/analysis:ro   # optional calibration report, served at /analysis/
     ports:
       - "${HAMCAM_WEB_PORT:-8097}:8080"
     depends_on: [go2rtc, telemetry]
