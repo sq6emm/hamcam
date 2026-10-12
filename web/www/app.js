@@ -449,6 +449,7 @@ function drawScatter(az) {
     }
   }
   let panel = null;
+  const reach = [];                                                  // tropo reach marks in view
   if (layers.tropo && scat.tropo && scat.tropo.state) {             // tropo panel (top left) + reach marks on the tape
     const t = scat.tropo, col = TROPO_COL[t.state] || '#c9d1d9', band = scat.radio?.freq_mhz;
     const lines = [`Tropo ${t.state} · k ${t.k != null ? (+t.k).toFixed(2) : '?'} · dN/dh ${t.dndh != null ? Math.round(t.dndh) : '?'}`];
@@ -464,9 +465,7 @@ function drawScatter(az) {
       if (!km || !t.level || !t.level[i]) return;
       const daz = ((i * 360 / n - yaw + 540) % 360) - 180, c = TROPO_COL[t.level[i]] || col;
       if (Math.abs(daz) > cfg.hfov / 2) { off[daz < 0 ? 'l' : 'r'].push({ i, km, daz, c }); return; }
-      const x = camera.xOf(daz);
-      el('rect', { x: x - 30, y: 94, width: 60, height: 8, rx: 3, fill: c }, g);
-      label(g, x, 124, `${km} km`, c, 'middle');
+      reach.push({ x: camera.xOf(daz), km, c });                   // drawn last, clear of the arrows and panels
     });
     for (const side of ['l', 'r']) {                                 // off-screen: nearest such direction on each side
       const o = off[side].sort((a, b) => Math.abs(a.daz) - Math.abs(b.daz)), d = o[0];
@@ -475,16 +474,35 @@ function drawScatter(az) {
       edge[side].unshift({ txt: `${name} ${d.km} km${o.length > 1 ? ` +${o.length - 1}` : ''}`, col: d.c, az: d.i * 360 / n, el: 0, name: `Tropo ${name}` });
     }
   }
+  const boxes = [[650, 84, 950, 226]];                              // azimuth box (660-940, index.html) and target line
   for (const side of ['l', 'r']) edge[side].forEach((e, k) => {     // arrow stacks: tropo first, then R/S
     const txt = side === 'l' ? `◀ ${e.txt}` : `${e.txt} ▶`, w = txt.length * 13 + 16, x0 = side === 'l' ? 8 : W - 8 - w, y = 84 + k * 30;
+    boxes.push([x0, y, x0 + w, y + 26]);
     el('rect', { x: x0, y, width: w, height: 26, rx: 6, class: 'panel' }, g);
     label(g, side === 'l' ? x0 + 8 : x0 + w - 8, y + 20, txt, e.col, side === 'l' ? 'start' : 'end');
     hits.scatter.push({ box: [x0, y, x0 + w, y + 26], az: e.az, el: e.el, name: e.name });
   });
   if (panel) {                                                       // tropo panel (top left), below the left arrows
-    const y = Math.max(112, 84 + edge.l.length * 30);
-    el('rect', { x: 8, y, width: Math.max(...panel.lines.map(l => l.length)) * 12.6 + 16, height: panel.lines.length * 28 + 12, rx: 6, class: 'panel' }, g);
+    const y = Math.max(112, 84 + edge.l.length * 30), w = Math.max(...panel.lines.map(l => l.length)) * 12.6 + 16, h = panel.lines.length * 28 + 12;
+    boxes.push([8, y, 8 + w, y + h]);
+    el('rect', { x: 8, y, width: w, height: h, rx: 6, class: 'panel' }, g);
     panel.lines.forEach((l, i) => label(g, 16, y + 26 + i * 28, l, i ? '#c9d1d9' : panel.col));
+  }
+  for (const { x, km, c } of reach) {                                // bar + range under the tape, moved below what covers it
+    if (x + 30 > 660 && x - 30 < 940) {                              // behind the azimuth box: bar in the gap above it, range beside it
+      el('rect', { x: x - 30, y: 84, width: 60, height: 8, rx: 3, fill: c }, g);
+      label(g, x < 800 ? 650 : 950, 124, `${km} km`, c, x < 800 ? 'end' : 'start');
+      boxes.push(x < 800 ? [550, 100, 650, 134] : [950, 100, 1050, 134]);
+      continue;
+    }
+    let y = 94;
+    for (let hit = true; hit;) {
+      hit = false;
+      for (const b of boxes) if (x - 40 < b[2] && x + 40 > b[0] && y < b[3] && y + 38 > b[1]) { y = b[3] + 4; hit = true; }
+    }
+    el('rect', { x: x - 30, y, width: 60, height: 8, rx: 3, fill: c }, g);
+    label(g, x, y + 30, `${km} km`, c, 'middle');
+    boxes.push([x - 40, y, x + 40, y + 38]);
   }
 }
 setInterval(() => drawScatter(shownAz), 200);
