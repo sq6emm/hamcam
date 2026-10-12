@@ -117,14 +117,16 @@ With `RSANT_URL` set, the telemetry service reads [rsanttracker](../rsanttracker
 - **R/S**: rain (blue), snow (cyan, dashed) and hail (magenta) scatter cells above the horizon, drawn at rsanttracker's
   aim point with a ring sized by the cell area; label: reflectivity, range, aim height. Dimmed when the DX station can't
   see the cell.
+  Cells outside the view: an arrow at each end of the tape shows the best-scoring one on that side
+  (`◀ R/S 48 dBZ 100° 120 km +1`).
 - **A/S**: aircraft rsanttracker rates usable for scatter towards its DX station (diamonds; relative score, scattering
   angle, range), dead-reckoned to the video time like the Planes layer, plus the DX direction on the tape.
 - **Tropo**: state (normal / enhanced / super-refraction / ducting), k, dN/dh and the ducts that trap the band, the next
   opening or the best forecast direction; directions where enhanced conditions reach out now are marked on the tape,
   and arrows at the tape ends point to the nearest such direction outside the view on each side (`◀ NE 450 km +2`).
 
-With Control on, a click on a cell points the rotator at it, a click on an off-screen tropo arrow turns it to that
-direction; a click on an A/S aircraft tracks it.
+With Control on, a click on a cell points the rotator at it, a click on an off-screen arrow turns it to that
+direction or cell; a click on an A/S aircraft tracks it.
 
 ## Derived automatically from the station location
 

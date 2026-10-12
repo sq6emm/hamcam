@@ -392,10 +392,13 @@ function drawScatter(az) {
     label(g, x, y, t1, col, anchor, 'pl').style.opacity = op;
     label(g, x, y + 26, t2, col, anchor).style.opacity = op;
   };
+  // off-screen arrows at the tape ends (tropo directions, R/S cells), drawn last as a stack on each side
+  const edge = { l: [], r: [] }, turn = a => ((a - yaw + 540) % 360) - 180;
   if (layers.rs) {                                                   // rain / snow scatter cells: aim point, size from area
     const shown = [];
+    const off = { l: [], r: [] };
     for (const c of scat.cells || []) {
-      if (!inView(c.az)) continue;
+      if (!inView(c.az)) { off[turn(c.az) < 0 ? 'l' : 'r'].push(c); continue; }
       const q = camera.project(c.az, c.el);
       if (onFrame(q)) shown.push({ c, q });
     }
@@ -410,6 +413,13 @@ function drawScatter(az) {
       tag(q.x + r + 8, q.y - 4, `${kind === 'rain' ? 'R/S' : kind === 'snow' ? 'S/S' : 'hail'} ${Math.round(c.max_dbz)} dBZ`,
           `${fmtKm(c.range_km * 1000)} · aim ${(c.alt_m / 1000).toFixed(1)} km${c.reachable ? '' : ' · no DX view'}`, col, 'start', op);
       hits.scatter.push({ x: q.x, y: q.y, r, az: c.az, el: c.el, name: `R/S ${c.id}` });
+    }
+    for (const side of ['l', 'r']) {                                 // off-screen: best-scoring cell on each side
+      const o = off[side].sort((a, b) => b.score - a.score), c = o[0];
+      if (!c) continue;
+      const kind = c.snow ? 'snow' : c.kind in RS_COL ? c.kind : 'rain';
+      edge[side].push({ txt: `${kind === 'rain' ? 'R/S' : kind === 'snow' ? 'S/S' : 'hail'} ${Math.round(c.max_dbz)} dBZ ${Math.round(wrap360(c.az))}° ${fmtKm(c.range_km * 1000)}${o.length > 1 ? ` +${o.length - 1}` : ''}`,
+                        col: RS_COL[kind], az: c.az, el: c.el, name: `R/S ${c.id}` });
     }
   }
   if (layers.as) {                                                   // aircraft usable for scatter towards the DX
@@ -438,6 +448,7 @@ function drawScatter(az) {
       }
     }
   }
+  let panel = null;
   if (layers.tropo && scat.tropo && scat.tropo.state) {             // tropo panel (top left) + reach marks on the tape
     const t = scat.tropo, col = TROPO_COL[t.state] || '#c9d1d9', band = scat.radio?.freq_mhz;
     const lines = [`Tropo ${t.state} · k ${t.k != null ? (+t.k).toFixed(2) : '?'} · dN/dh ${t.dndh != null ? Math.round(t.dndh) : '?'}`];
@@ -447,8 +458,7 @@ function drawScatter(az) {
     if (t.window) lines.push(`opening ${dayHH(t.window.start)}–${hhmm(t.window.end)} UTC ${t.window.state}`);
     else if (t.map_best && t.map_best.state && t.map_best.state !== 'normal')
       lines.push(`best ${t.map_best.state} ${AZ16[Math.round(t.map_best.az / 22.5) % 16]} ${t.map_best.reach_km} km ${dayHH(t.map_best.t)} UTC`);
-    el('rect', { x: 8, y: 112, width: Math.max(...lines.map(l => l.length)) * 12.6 + 16, height: lines.length * 28 + 12, rx: 6, class: 'panel' }, g);
-    lines.forEach((l, i) => label(g, 16, 138 + i * 28, l, i ? '#c9d1d9' : col));
+    panel = { lines, col };
     const n = t.n_az || (t.reach_km || []).length, off = { l: [], r: [] };
     (t.reach_km || []).forEach((km, i) => {                          // directions where enhanced (or better) runs from here
       if (!km || !t.level || !t.level[i]) return;
@@ -462,12 +472,19 @@ function drawScatter(az) {
       const o = off[side].sort((a, b) => Math.abs(a.daz) - Math.abs(b.daz)), d = o[0];
       if (!d) continue;
       const name = AZ16[Math.round(d.i * 16 / n) % 16];
-      const txt = `${side === 'l' ? '◀ ' : ''}${name} ${d.km} km${o.length > 1 ? ` +${o.length - 1}` : ''}${side === 'r' ? ' ▶' : ''}`;
-      const w = txt.length * 13 + 16, x0 = side === 'l' ? 8 : W - 8 - w;
-      el('rect', { x: x0, y: 84, width: w, height: 26, rx: 6, class: 'panel' }, g);
-      label(g, side === 'l' ? x0 + 8 : x0 + w - 8, 104, txt, d.c, side === 'l' ? 'start' : 'end');
-      hits.scatter.push({ x: x0 + w / 2, y: 97, r: 32, az: d.i * 360 / n, el: 0, name: `Tropo ${name}` });
+      edge[side].unshift({ txt: `${name} ${d.km} km${o.length > 1 ? ` +${o.length - 1}` : ''}`, col: d.c, az: d.i * 360 / n, el: 0, name: `Tropo ${name}` });
     }
+  }
+  for (const side of ['l', 'r']) edge[side].forEach((e, k) => {     // arrow stacks: tropo first, then R/S
+    const txt = side === 'l' ? `◀ ${e.txt}` : `${e.txt} ▶`, w = txt.length * 13 + 16, x0 = side === 'l' ? 8 : W - 8 - w, y = 84 + k * 30;
+    el('rect', { x: x0, y, width: w, height: 26, rx: 6, class: 'panel' }, g);
+    label(g, side === 'l' ? x0 + 8 : x0 + w - 8, y + 20, txt, e.col, side === 'l' ? 'start' : 'end');
+    hits.scatter.push({ box: [x0, y, x0 + w, y + 26], az: e.az, el: e.el, name: e.name });
+  });
+  if (panel) {                                                       // tropo panel (top left), below the left arrows
+    const y = Math.max(112, 84 + edge.l.length * 30);
+    el('rect', { x: 8, y, width: Math.max(...panel.lines.map(l => l.length)) * 12.6 + 16, height: panel.lines.length * 28 + 12, rx: 6, class: 'panel' }, g);
+    panel.lines.forEach((l, i) => label(g, 16, y + 26 + i * 28, l, i ? '#c9d1d9' : panel.col));
   }
 }
 setInterval(() => drawScatter(shownAz), 200);
@@ -609,7 +626,8 @@ function controlClick(x, y) {
   let best = null;
   if (!$('hud').classList.contains('off')) {
     for (const h of [...hits.planes, ...hits.sats, ...hits.scatter, ...hits.marks]) {
-      const d = h.line ? (y > 100 ? Math.abs(h.x - x) : Infinity) : Math.hypot(h.x - x, h.y - y);
+      const d = h.box ? (x >= h.box[0] && x <= h.box[2] && y >= h.box[1] && y <= h.box[3] ? 0 : Infinity)
+        : h.line ? (y > 100 ? Math.abs(h.x - x) : Infinity) : Math.hypot(h.x - x, h.y - y);
       if (d < (h.line ? 14 : Math.max(28, h.r || 0)) && (!best || d < best.d)) best = { ...h, d };
     }
   }
