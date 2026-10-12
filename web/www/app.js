@@ -480,7 +480,7 @@ $('ctl').onclick = () => {
   ctlOn = !ctlOn;
   if (!ctlOn && track) { const n = track.name; track = null; ctl({ cmd: 'untrack' }); flash(`Rotator: tracking ${n} ended`); }
   $('ctl').classList.toggle('on', ctlOn); $('stopBtn').hidden = !ctlOn; $('gotoIn').hidden = !ctlOn;
-  $('frame').classList.toggle('ctl', ctlOn);
+  $('frame').classList.toggle('ctl', ctlOn); $('bar').classList.toggle('ctlon', ctlOn);
 };
 function stopNow() { track = null; ctl({ cmd: 'stop' }); flash('Rotator: STOP'); }
 $('stopBtn').onclick = stopNow;
@@ -577,6 +577,74 @@ function drawCtl(az) {
   label(g, bx, 218, txt, col, 'middle');
 }
 setInterval(() => drawCtl(shownAz), 200);
+
+// ---------- zoom: wheel / pinch / buttons / keys, drag to pan. Video and HUD share one transform, so every overlay
+// stays on its object; clicks map through getBoundingClientRect (probe and click-to-point keep working when zoomed) ----------
+const ZMAX = 6;
+const zoom = { s: 1, x: 0, y: 0 };                    // scale; pan as a fraction of the box size (survives resizes)
+const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+function applyZoom() {
+  zoom.s = clampN(zoom.s, 1, ZMAX);
+  zoom.x = clampN(zoom.x, 1 - zoom.s, 0); zoom.y = clampN(zoom.y, 1 - zoom.s, 0);   // the picture always covers its box
+  const w = $('video').offsetWidth, h = $('video').offsetHeight;
+  const t = zoom.s === 1 ? '' : `translate(${zoom.x * w}px, ${zoom.y * h}px) scale(${zoom.s})`;
+  $('video').style.transform = t; $('hud').style.transform = t;
+  $('frame').classList.toggle('zoomed', zoom.s > 1);
+  $('zoomRst').textContent = `${zoom.s.toFixed(1).replace(/\.0$/, '')}×`;
+}
+function zoomAt(f, cx, cy) {                           // f: factor; cx, cy: client point that stays put (default: centre)
+  const w = $('video').offsetWidth, h = $('video').offsetHeight, r = $('hud').getBoundingClientRect();
+  const ox = r.left - zoom.x * w, oy = r.top - zoom.y * h;          // untransformed box origin
+  const px = (cx ?? ox + w / 2) - ox, py = (cy ?? oy + h / 2) - oy;  // point in box px
+  const s1 = clampN(zoom.s * f, 1, ZMAX), k = s1 / zoom.s;
+  zoom.x = (px - (px - zoom.x * w) * k) / w; zoom.y = (py - (py - zoom.y * h) * k) / h; zoom.s = s1;
+  applyZoom();
+}
+$('zoomIn').onclick = () => zoomAt(1.5);
+$('zoomOut').onclick = () => zoomAt(1 / 1.5);
+$('zoomRst').onclick = () => { zoom.s = 1; applyZoom(); };
+$('frame').addEventListener('wheel', e => { e.preventDefault(); zoomAt(Math.exp(-clampN(e.deltaY, -200, 200) * 0.002), e.clientX, e.clientY); }, { passive: false });
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '+' || e.key === '=') zoomAt(1.5); else if (e.key === '-') zoomAt(1 / 1.5);
+  else if (e.key === '0') { zoom.s = 1; applyZoom(); }
+});
+addEventListener('resize', applyZoom);
+{ // one finger / mouse drag pans (when zoomed), two fingers pinch; a drag never counts as a click
+  const pts = new Map(); let moved = false, last = null;
+  const mid = () => { const [a, b] = [...pts.values()]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) }; };
+  $('frame').addEventListener('pointerdown', e => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) moved = false;
+    last = pts.size === 2 ? mid() : { x: e.clientX, y: e.clientY };
+  });
+  $('frame').addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2) {
+      const m = mid();
+      if (last && last.d) { zoomAt(m.d / last.d, m.x, m.y); panBy(m.x - last.x, m.y - last.y); }
+      last = m; moved = true;
+    } else if (pts.size === 1 && last) {
+      const dx = e.clientX - last.x, dy = e.clientY - last.y;
+      if (!moved && Math.hypot(dx, dy) < 6) return;                  // still a click
+      if (!moved) $('frame').setPointerCapture(e.pointerId);
+      moved = true; panBy(dx, dy); last = { x: e.clientX, y: e.clientY };
+      $('frame').classList.toggle('panning', zoom.s > 1);
+    }
+  });
+  const up = e => {
+    pts.delete(e.pointerId); $('frame').classList.remove('panning');
+    last = pts.size === 1 ? { ...[...pts.values()][0] } : null;
+  };
+  $('frame').addEventListener('pointerup', up); $('frame').addEventListener('pointercancel', up);
+  $('frame').addEventListener('click', e => { if (moved) { e.stopPropagation(); moved = false; } }, true);   // before the probe / control click
+  function panBy(dx, dy) {
+    if (zoom.s === 1) return;
+    zoom.x += dx / $('video').offsetWidth; zoom.y += dy / $('video').offsetHeight; applyZoom();
+  }
+}
 
 $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.classList.toggle('on'); };
 // layer switches (remembered per browser)

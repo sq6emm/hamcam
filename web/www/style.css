@@ -26,18 +26,19 @@ ham-video video { object-fit: fill; }
   background: rgba(8, 10, 14, 0.8); border: 1px solid var(--accent); border-radius: 8px;
   padding: 8px 14px; font-size: 16px; pointer-events: none; }
 
-/* compact bar: one row down to ~1200 px with Control on (~1000 px without); when it runs out of room it wraps to a
+/* compact bar: one row down to ~1310 px with Control on (~1120 px without); when it runs out of room it wraps to a
    second row, nothing is hidden or scrolled away */
 #bar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; min-height: 44px;
   border-top: 1px solid #1d232b; flex-wrap: wrap; row-gap: 6px; }
 #bar .title { font-weight: 700; margin-right: 4px; white-space: nowrap; }
 #bar button { background: #161b22; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px;
-  padding: 4px 7px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+  padding: 4px 6px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
 #bar button.on { border-color: var(--accent); color: var(--accent); }
 #clock { padding-left: 6px; color: var(--muted); white-space: nowrap; }
 #bar .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; row-gap: 6px; }   /* overlay switches | page actions */
 #bar .actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; margin-left: 8px; }   /* wraps as one group, right-aligned */
-@media (max-width: 1380px) { #clock .date { display: none; } }          /* time only */
+@media (max-width: 1230px) { #clock .date { display: none; } }          /* time only (bar needs ~1211 px with the date) */
+@media (max-width: 1420px) { #bar.ctlon #clock .date { display: none; } } /* Control on: field + STOP need ~190 px more */
 @media (max-width: 640px) {
   #bar { padding: 6px 8px; }
   #bar .actions { justify-content: flex-start; }
@@ -45,7 +46,12 @@ ham-video video { object-fit: fill; }
 }
 #bar button.stop { background: #b91c1c; border-color: #ef4444; color: #fff; font-weight: 700; }   /* rotator STOP */
 #frame.ctl { cursor: crosshair; }
-#bar input { background: #0d1117; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px; padding: 4px 7px; font: inherit; font-size: 13px; width: 12em; }
+#frame { touch-action: none; }                                   /* pinch / drag zoom the picture, not the page */
+#frame.zoomed { cursor: grab; } #frame.zoomed.ctl { cursor: crosshair; } #frame.panning { cursor: grabbing; }
+ham-video, #hud { transform-origin: 0 0; }
+#bar button.zb { min-width: 2em; padding: 4px 4px; }
+#zoomRst { min-width: 3.4em; }
+#bar input { background: #0d1117; color: var(--fg); border: 1px solid #2b333d; border-radius: 6px; padding: 4px 7px; font: inherit; font-size: 13px; width: 10.5em; }
 #bar input:focus { outline: none; border-color: var(--accent); }
 #bar a.title { color: var(--fg); text-decoration: none; }
 #bar a.title:hover { color: var(--accent); text-decoration: underline; }
