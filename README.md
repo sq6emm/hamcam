@@ -120,9 +120,11 @@ With `RSANT_URL` set, the telemetry service reads [rsanttracker](../rsanttracker
 - **A/S**: aircraft rsanttracker rates usable for scatter towards its DX station (diamonds; relative score, scattering
   angle, range), dead-reckoned to the video time like the Planes layer, plus the DX direction on the tape.
 - **Tropo**: state (normal / enhanced / super-refraction / ducting), k, dN/dh and the ducts that trap the band, the next
-  opening or the best forecast direction; directions where enhanced conditions reach out now are marked on the tape.
+  opening or the best forecast direction; directions where enhanced conditions reach out now are marked on the tape,
+  and arrows at the tape ends point to the nearest such direction outside the view on each side (`◀ NE 450 km +2`).
 
-With Control on, a click on a cell points the rotator at it; a click on an A/S aircraft tracks it.
+With Control on, a click on a cell points the rotator at it, a click on an off-screen tropo arrow turns it to that
+direction; a click on an A/S aircraft tracks it.
 
 ## Derived automatically from the station location
 

@@ -449,15 +449,25 @@ function drawScatter(az) {
       lines.push(`best ${t.map_best.state} ${AZ16[Math.round(t.map_best.az / 22.5) % 16]} ${t.map_best.reach_km} km ${dayHH(t.map_best.t)} UTC`);
     el('rect', { x: 8, y: 112, width: Math.max(...lines.map(l => l.length)) * 12.6 + 16, height: lines.length * 28 + 12, rx: 6, class: 'panel' }, g);
     lines.forEach((l, i) => label(g, 16, 138 + i * 28, l, i ? '#c9d1d9' : col));
-    const n = t.n_az || (t.reach_km || []).length;
+    const n = t.n_az || (t.reach_km || []).length, off = { l: [], r: [] };
     (t.reach_km || []).forEach((km, i) => {                          // directions where enhanced (or better) runs from here
       if (!km || !t.level || !t.level[i]) return;
-      const daz = ((i * 360 / n - yaw + 540) % 360) - 180;
-      if (Math.abs(daz) > cfg.hfov / 2) return;
-      const x = camera.xOf(daz), c = TROPO_COL[t.level[i]] || col;
+      const daz = ((i * 360 / n - yaw + 540) % 360) - 180, c = TROPO_COL[t.level[i]] || col;
+      if (Math.abs(daz) > cfg.hfov / 2) { off[daz < 0 ? 'l' : 'r'].push({ i, km, daz, c }); return; }
+      const x = camera.xOf(daz);
       el('rect', { x: x - 30, y: 94, width: 60, height: 8, rx: 3, fill: c }, g);
       label(g, x, 124, `${km} km`, c, 'middle');
     });
+    for (const side of ['l', 'r']) {                                 // off-screen: nearest such direction on each side
+      const o = off[side].sort((a, b) => Math.abs(a.daz) - Math.abs(b.daz)), d = o[0];
+      if (!d) continue;
+      const name = AZ16[Math.round(d.i * 16 / n) % 16];
+      const txt = `${side === 'l' ? '◀ ' : ''}${name} ${d.km} km${o.length > 1 ? ` +${o.length - 1}` : ''}${side === 'r' ? ' ▶' : ''}`;
+      const w = txt.length * 13 + 16, x0 = side === 'l' ? 8 : W - 8 - w;
+      el('rect', { x: x0, y: 84, width: w, height: 26, rx: 6, class: 'panel' }, g);
+      label(g, side === 'l' ? x0 + 8 : x0 + w - 8, 104, txt, d.c, side === 'l' ? 'start' : 'end');
+      hits.scatter.push({ x: x0 + w / 2, y: 97, r: 32, az: d.i * 360 / n, el: 0, name: `Tropo ${name}` });
+    }
   }
 }
 setInterval(() => drawScatter(shownAz), 200);
