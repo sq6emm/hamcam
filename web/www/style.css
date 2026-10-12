@@ -26,7 +26,7 @@ ham-video video { object-fit: fill; }
   background: rgba(8, 10, 14, 0.8); border: 1px solid var(--accent); border-radius: 8px;
   padding: 8px 14px; font-size: 16px; pointer-events: none; }
 
-/* compact bar: one row down to ~1310 px with Control on (~1120 px without); when it runs out of room it wraps to a
+/* compact bar: one row down to ~1300 px with Control on (~1110 px without); when it runs out of room it wraps to a
    second row, nothing is hidden or scrolled away */
 #bar { display: flex; gap: 4px; align-items: center; padding: 6px 10px; min-height: 44px;
   border-top: 1px solid #1d232b; flex-wrap: wrap; row-gap: 6px; }
@@ -37,8 +37,8 @@ ham-video video { object-fit: fill; }
 #clock { padding-left: 6px; color: var(--muted); white-space: nowrap; }
 #bar .grp { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; row-gap: 6px; }   /* overlay switches | page actions */
 #bar .actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; margin-left: 8px; }   /* wraps as one group, right-aligned */
-@media (max-width: 1230px) { #clock .date { display: none; } }          /* time only (bar needs ~1211 px with the date) */
-@media (max-width: 1420px) { #bar.ctlon #clock .date { display: none; } } /* Control on: field + STOP need ~190 px more */
+@media (max-width: 1140px) { #clock .date { display: none; } }          /* time only (bar needs ~1124 px with the date) */
+@media (max-width: 1410px) { #bar.ctlon #clock .date { display: none; } } /* Control on: field + STOP need ~270 px more */
 @media (max-width: 640px) {
   #bar { padding: 6px 8px; }
   #bar .actions { justify-content: flex-start; }

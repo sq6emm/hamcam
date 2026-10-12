@@ -2,14 +2,16 @@
 
 Live, low-latency view from a camera mounted on a rotating antenna (SQ6EMM, JO81LC), with a browser-side overlay that
 knows where the antenna points: compass tape and elevation scale, local landmarks, 23 cm beacons, SOTA summits,
-aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites. Every layer can be switched on/off.
+aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites, and – with rsanttracker – rain/snow
+scatter cells, aircraft scatter candidates and the tropo state. Every layer can be switched on/off. The view zooms up to
+6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan).
 From allowed networks the page can also steer the rotator: with **Control** on, a click turns the antenna to that
 point or object (az and el are sent), a click on an aircraft or satellite tracks it; the point-to field takes an azimuth (`213`, `213/10` = az/el),
 a locator (`JO80HK`) or a callsign (`SP6GWB`, looked up at qthdb.hamradio.pl); **STOP** / Esc stops at once.
 
 ```
 camera --RTSP--> go2rtc --WebRTC--> browser  (overlay drawn in the browser: web/www)
-rotctld, weather, IARU beacons, CelesTrak TLEs, SOTA --> telemetry service --WebSocket/JSON--> browser
+rotctld, weather, IARU beacons, CelesTrak TLEs, SOTA, rsanttracker --> telemetry service --WebSocket/JSON--> browser
 ADS-B receiver aircraft.json --> nginx --> browser
 ```
 
@@ -83,6 +85,7 @@ re-reads it on its next refresh).
 | `CONTROL_ALLOW` | telemetry | networks (CIDRs) allowed to steer the rotator from the page; **empty = disabled** |
 | `TRUSTED_PROXY` | web | public front proxy; only its `X-Forwarded-For` is trusted (its last entry), so visitors coming through it are judged by their real address |
 | `QTHDB_URL` | telemetry | callsign → locator lookup for the point-to field (`https://qthdb.hamradio.pl`) |
+| `RSANT_URL` | telemetry | [rsanttracker](#scatter-and-tropo) base URL (e.g. `http://192.168.12.12:8073`); empty = R/S, A/S, Tropo hidden |
 | `TRACK_STEP_DEG`, `TRACK_MIN_INTERVAL_S`, `TRACK_LEASE_S`, `ROT_EL_MIN`, `ROT_EL_MAX` | telemetry | tracking: move when ≥ 2° off, at most every 3 s, ends 10 s after the page stops confirming; elevation range sent to rotctld |
 | `SOTA_ASSOCIATIONS`, `SUMMIT_MAX_KM` | telemetry | SOTA associations searched for visible summits (`SP,OK`) and radius (250 km) |
 
@@ -98,12 +101,28 @@ re-reads it on its next refresh).
     `tilt` (`A`, `B`, `ref_az`: mast tilt, from `tools/tilt/tilt_calib.py`)
   - `az_delay`: how much the video lags the rotator readout (s); `boresight`: antenna direction in the frame (fractions)
 - `display`: `title` (browser tab title, after the call sign), `layers` – per layer `weather`, `beacons`, `poi`, `summits`,
-  `planes`, `sky`, `sats`, `hamsats`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
+  `planes`, `sky`, `sats`, `hamsats`, `rs`, `as`, `tropo`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
   no data loaded); `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
   station, for ADS-B GPS altitudes), `adsb_max_km`.
 - `objects`: your own points – `landmark` (with `lat`, `lon`, `h` = top height ASL) or `radio` (`locator`); add/remove freely.
 
 Query parameters override camera values for testing: `?hfov= &pitch= &roll= &azoff= &azdelay= &k1= &k2= &adsbkm= &notilt`.
+
+## Scatter and tropo
+
+With `RSANT_URL` set, the telemetry service reads [rsanttracker](../rsanttracker)'s `/api/state` every
+`RSANT_POLL_S` (5 s) – read only, it never uses its tracking endpoints – and serves a compact copy at
+`/telemetry/scatter`. Three layers use it:
+
+- **R/S**: rain (blue), snow (cyan, dashed) and hail (magenta) scatter cells above the horizon, drawn at rsanttracker's
+  aim point with a ring sized by the cell area; label: reflectivity, range, aim height. Dimmed when the DX station can't
+  see the cell.
+- **A/S**: aircraft rsanttracker rates usable for scatter towards its DX station (diamonds; relative score, scattering
+  angle, range), dead-reckoned to the video time like the Planes layer, plus the DX direction on the tape.
+- **Tropo**: state (normal / enhanced / super-refraction / ducting), k, dN/dh and the ducts that trap the band, the next
+  opening or the best forecast direction; directions where enhanced conditions reach out now are marked on the tape.
+
+With Control on, a click on a cell points the rotator at it; a click on an A/S aircraft tracks it.
 
 ## Derived automatically from the station location
 

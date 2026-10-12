@@ -51,6 +51,7 @@ services:
       ROT_EL_MIN: ${ROT_EL_MIN:-0}
       ROT_EL_MAX: ${ROT_EL_MAX:-90}
       QTHDB_URL: ${QTHDB_URL:-https://qthdb.hamradio.pl}   # callsign -> locator for the point-to field
+      RSANT_URL: ${RSANT_URL:-}                  # rsanttracker base URL: R/S, A/S and Tropo layers (read-only)
       TRUSTED_PROXY: ${TRUSTED_PROXY:-}    # the front proxy itself is never accepted as a control client
     user: "${HAMCAM_UID:-1000}:${HAMCAM_GID:-1000}"   # must be able to write HAMCAM_DATA
     volumes:

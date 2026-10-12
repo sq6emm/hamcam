@@ -31,6 +31,7 @@
       <g id="marks"></g>
       <g id="planes"></g>
       <g id="sats"></g>
+      <g id="scatter"></g>
       <g id="ctlmarks"></g>
       <g id="boresight"></g>
       <g id="probe"></g>
@@ -46,14 +47,17 @@
     <a class="title" href="https://github.com/sq6emm/hamcam" target="_blank" rel="noopener" title="hamcam on GitHub">hamcam</a>
     <span class="grp">
     <button id="hudToggle">Overlay</button>
-    <button id="lyWx" title="weather station">Weather</button>
+    <button id="lyWx" title="weather station">Wx</button>
     <button id="lyBeacons" title="23 cm beacons + radio stations">Beacons</button>
     <button id="lyPoi" title="local points of interest">POI</button>
-    <button id="lySummits" title="SOTA summits above the horizon">Summits</button>
+    <button id="lySummits" title="SOTA summits above the horizon">SOTA</button>
     <button id="lyPlanes" title="aircraft (ADS-B)">Planes</button>
     <button id="lySky" title="Sun, Moon, planets">Sky</button>
     <button id="lySats" title="bright (naked-eye) satellites, CelesTrak visual">Sats</button>
-    <button id="lyHam" title="amateur radio satellites, CelesTrak amateur">Ham sats</button>
+    <button id="lyHam" title="amateur radio satellites, CelesTrak amateur">Ham</button>
+    <button id="lyRs" hidden title="rain / snow scatter cells (weather radar), from rsanttracker">R/S</button>
+    <button id="lyAs" hidden title="aircraft usable for scatter towards the DX station, from rsanttracker">A/S</button>
+    <button id="lyTropo" hidden title="tropospheric refraction, ducts and reach by direction (weather model), from rsanttracker">Tropo</button>
     </span>
     <span class="grp actions">
     <button id="ctl" hidden title="click in the picture turns the rotator; click a plane or satellite to track it">Control</button>
@@ -63,7 +67,7 @@
     <button id="zoomOut" class="zb" title="zoom out (− key; wheel, pinch)">−</button>
     <button id="zoomRst" class="zb" title="zoom level - click for the whole picture (0 key); drag the picture to pan">1×</button>
     <button id="zoomIn" class="zb" title="zoom in (+ key; wheel, pinch)">+</button>
-    <button id="shot">Screenshot</button>
+    <button id="shot" title="save the current frame with the overlay (full resolution)">Shot</button>
     <button id="fs">Fullscreen</button>
     <span id="clock" title="Server-synced UTC clock (the camera OSD shows local time)"></span>
     </span>

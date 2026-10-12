@@ -45,7 +45,7 @@ scene.objects.forEach(placeObject);
 const fixedObjects = scene.objects.slice();
 const beaconsNow = () => scene.objects.filter(o => o.kind === 'beacon'), summitsNow = () => scene.objects.filter(o => o.kind === 'summit');
 // layers: objects.json display.layers.<name> = "on" (shown) | "off" (button, hidden at start) | "disabled" (no button, no data)
-const LAYER_NAMES = ['weather', 'beacons', 'poi', 'summits', 'planes', 'sky', 'sats', 'hamsats'];
+const LAYER_NAMES = ['weather', 'beacons', 'poi', 'summits', 'planes', 'sky', 'sats', 'hamsats', 'rs', 'as', 'tropo'];
 const layerMode = k => (DISP.layers || {})[k] ?? 'on';
 const enabled = k => layerMode(k) !== 'disabled';
 const layers = Object.fromEntries(LAYER_NAMES.map(k => [k, layerMode(k) === 'on']));
@@ -195,7 +195,7 @@ function vlabel(g, x, y, text, color, anchor = 'start') {
 
 // marks on the tape (always, also for things above/below the frame) and in the picture
 // clickable things drawn this frame (rotator control): {x, y, r?, line?, az, el, name} or {..., track: {type, key, name}}
-const hits = { marks: [], planes: [], sats: [] };
+const hits = { marks: [], planes: [], sats: [], scatter: [] };
 
 function drawMarks(az) {
   const g = $('marks');
@@ -354,6 +354,114 @@ function drawPlanes(az) {
 }
 setInterval(() => drawPlanes(shownAz), 100);
 
+// ---------- scatter + tropo (rsanttracker, read via the telemetry service): R/S cells, A/S aircraft, tropo state ----------
+const RS_COL = { rain: '#60a5fa', snow: '#67e8f9', hail: '#f472b6' }, AS_COL = '#fb923c';
+const TROPO_COL = { 'sub-refraction': '#9aa3ad', normal: '#c9d1d9', enhanced: '#86efac', 'super-refraction': '#fde047', ducting: '#f472b6' };
+let scat = null;                                       // last /telemetry/scatter answer (null: none yet / not configured)
+async function pollScatter() {
+  if (!['rs', 'as', 'tropo'].some(enabled)) return;
+  try {
+    const d = await tfetch('telemetry/scatter', { cache: 'no-store' }, 6000).then(r => r.json());
+    if (!d.enabled) { for (const b of ['lyRs', 'lyAs', 'lyTropo']) $(b).hidden = true; return; }
+    for (const [k, b] of [['rs', 'lyRs'], ['as', 'lyAs'], ['tropo', 'lyTropo']]) $(b).hidden = !enabled(k);
+    d.aircraft = (d.aircraft || []).map(a => ({ ...a, v: (a.gs_kmh || 0) / 3.6, trk: (a.track || 0) * D2R, vz: 0, h: a.alt_m }));
+    scat = d.updated ? d : null;
+  } catch { /* keep the last answer */ }
+}
+pollScatter(); setInterval(pollScatter, 5000);
+const fmtDb = v => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)} dB`;
+const hhmm = t => new Date(t * 1000).toISOString().slice(11, 16);
+const dayHH = t => `${new Date(t * 1000).toUTCString().slice(0, 3)} ${hhmm(t)}`;
+const AZ16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+function drawScatter(az) {
+  const g = $('scatter');
+  g.replaceChildren();
+  hits.scatter = [];
+  const fresh = scat && Date.now() / 1000 + clockOffset / 1000 - scat.updated < 120;
+  if (az == null || !fresh) return;
+  const yaw = az + cfg.azOff;
+  camera.setYaw(yaw);
+  const inView = a => Math.abs(((a - yaw + 540) % 360) - 180) <= cfg.hfov / 2 + 2;
+  const onFrame = q => q.front && q.x >= 0 && q.x <= W && q.y >= 110 && q.y <= H - 10;
+  // best score first; at most 8 of each kind; a label is drawn only where it doesn't cover an earlier one
+  const taken = [], free = (x0, y0, x1, y1) => !taken.some(b => x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1]);
+  const tag = (x, y, t1, t2, col, anchor, op = 1) => {
+    const w = Math.max(t1.length * 16, t2.length * 13.5) + 4, x0 = anchor === 'end' ? x - w : x, box = [x0, y - 24, x0 + w, y + 30];
+    if (!free(...box)) return;
+    taken.push(box);
+    label(g, x, y, t1, col, anchor, 'pl').style.opacity = op;
+    label(g, x, y + 26, t2, col, anchor).style.opacity = op;
+  };
+  if (layers.rs) {                                                   // rain / snow scatter cells: aim point, size from area
+    const shown = [];
+    for (const c of scat.cells || []) {
+      if (!inView(c.az)) continue;
+      const q = camera.project(c.az, c.el);
+      if (onFrame(q)) shown.push({ c, q });
+    }
+    shown.sort((a, b) => b.c.score - a.c.score);
+    for (const { c, q } of shown.slice(0, 8)) {
+      const kind = c.snow ? 'snow' : c.kind in RS_COL ? c.kind : 'rain', col = RS_COL[kind];
+      const r = Math.max(camera.degToPx(Math.atan(Math.sqrt((c.area_km2 || 1) / Math.PI) / Math.max(c.range_km, 1)) * R2D), 14);
+      const op = c.reachable ? 1 : 0.5;
+      const ring = el('circle', { cx: q.x, cy: q.y, r, fill: 'none', 'stroke-width': 3, 'stroke-dasharray': kind === 'snow' ? '8 6' : '' }, g);
+      ring.style.stroke = col; ring.style.opacity = op;
+      el('circle', { cx: q.x, cy: q.y, r: 4, fill: col }, g).style.opacity = op;
+      tag(q.x + r + 8, q.y - 4, `${kind === 'rain' ? 'R/S' : kind === 'snow' ? 'S/S' : 'hail'} ${Math.round(c.max_dbz)} dBZ`,
+          `${fmtKm(c.range_km * 1000)} · aim ${(c.alt_m / 1000).toFixed(1)} km${c.reachable ? '' : ' · no DX view'}`, col, 'start', op);
+      hits.scatter.push({ x: q.x, y: q.y, r, az: c.az, el: c.el, name: `R/S ${c.id}` });
+    }
+  }
+  if (layers.as) {                                                   // aircraft usable for scatter towards the DX
+    const tNow = (Date.now() + clockOffset) / 1000 - VIDEO_LAG - mseExtra, shown = [];
+    for (const a of scat.aircraft || []) {
+      const { az: paz, el: pel, dist } = planeLook(a, tNow);
+      if (pel < -0.5 || !inView(paz)) continue;
+      const q = camera.project(paz, pel);
+      if (onFrame(q)) shown.push({ a, q, dist });
+    }
+    shown.sort((x, y) => y.a.score - x.a.score);
+    for (const { a, q, dist } of shown.slice(0, 8)) {
+      const r = 22, d = `M${q.x} ${q.y - r} L${q.x + r} ${q.y} L${q.x} ${q.y + r} L${q.x - r} ${q.y} Z`;
+      const tracked = track && track.type === 'plane' && track.key === a.id;
+      el('path', { d, fill: 'none', 'stroke-width': tracked ? 6 : 3 }, g).style.stroke = AS_COL;
+      tag(q.x - r - 8, q.y - 4, `A/S ${(a.flight || a.reg || a.id).trim()}`, `${fmtDb(a.score)} · ${Math.round(a.scatter_angle)}° · ${fmtKm(dist)}`, AS_COL, 'end');
+      hits.scatter.push({ x: q.x, y: q.y, r, track: { type: 'plane', key: a.id, name: (a.flight || a.id).trim(), minEl: -0.5 } });
+    }
+    if (scat.dx) {                                                   // DX direction on the tape
+      const dx = azElOf(ST, scat.dx.lat, scat.dx.lon, scat.dx.alt_m ?? 0);
+      if (inView(dx.az)) {
+        const x = camera.xOf(((dx.az - yaw + 540) % 360) - 180);
+        const ly = Math.abs(x - W / 2) < 170 ? 214 : 124;            // below the azimuth box when it would cover it
+        el('path', { d: `M${x - 10} 78 L${x + 10} 78 L${x} 94 Z`, fill: AS_COL }, g);
+        label(g, x, ly, `DX ${scat.dx.callsign || scat.dx.locator}`, AS_COL, 'middle');
+      }
+    }
+  }
+  if (layers.tropo && scat.tropo && scat.tropo.state) {             // tropo panel (top left) + reach marks on the tape
+    const t = scat.tropo, col = TROPO_COL[t.state] || '#c9d1d9', band = scat.radio?.freq_mhz;
+    const lines = [`Tropo ${t.state} · k ${t.k != null ? (+t.k).toFixed(2) : '?'} · dN/dh ${t.dndh != null ? Math.round(t.dndh) : '?'}`];
+    const ducts = (t.ducts || []).filter(d => d.traps);
+    lines.push(ducts.length ? ducts.slice(0, 2).map(d => `duct ${d.base_m}–${d.top_m} m ≥${(d.min_freq_mhz / 1000).toFixed(1)} GHz`).join(', ')
+      : (t.ducts || []).length ? `ducts too thin for ${band ? (band / 1000).toFixed(1) + ' GHz' : 'the band'}` : 'no ducts');
+    if (t.window) lines.push(`opening ${dayHH(t.window.start)}–${hhmm(t.window.end)} UTC ${t.window.state}`);
+    else if (t.map_best && t.map_best.state && t.map_best.state !== 'normal')
+      lines.push(`best ${t.map_best.state} ${AZ16[Math.round(t.map_best.az / 22.5) % 16]} ${t.map_best.reach_km} km ${dayHH(t.map_best.t)} UTC`);
+    el('rect', { x: 8, y: 112, width: Math.max(...lines.map(l => l.length)) * 12.6 + 16, height: lines.length * 28 + 12, rx: 6, class: 'panel' }, g);
+    lines.forEach((l, i) => label(g, 16, 138 + i * 28, l, i ? '#c9d1d9' : col));
+    const n = t.n_az || (t.reach_km || []).length;
+    (t.reach_km || []).forEach((km, i) => {                          // directions where enhanced (or better) runs from here
+      if (!km || !t.level || !t.level[i]) return;
+      const daz = ((i * 360 / n - yaw + 540) % 360) - 180;
+      if (Math.abs(daz) > cfg.hfov / 2) return;
+      const x = camera.xOf(daz), c = TROPO_COL[t.level[i]] || col;
+      el('rect', { x: x - 30, y: 94, width: 60, height: 8, rx: 3, fill: c }, g);
+      label(g, x, 124, `${km} km`, c, 'middle');
+    });
+  }
+}
+setInterval(() => drawScatter(shownAz), 200);
+
 // ---------- satellites: TLEs from the telemetry service (CelesTrak, cached), propagated here with satellite.js ----------
 const SAT = { sats: { url: 'telemetry/tle/visual', col: '#f0abfc', recs: [] },
               hamsats: { url: 'telemetry/tle/amateur', col: '#fdba74', recs: [] } };
@@ -490,7 +598,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && ctlOn) sto
 function controlClick(x, y) {
   let best = null;
   if (!$('hud').classList.contains('off')) {
-    for (const h of [...hits.planes, ...hits.sats, ...hits.marks]) {
+    for (const h of [...hits.planes, ...hits.sats, ...hits.scatter, ...hits.marks]) {
       const d = h.line ? (y > 100 ? Math.abs(h.x - x) : Infinity) : Math.hypot(h.x - x, h.y - y);
       if (d < (h.line ? 14 : Math.max(28, h.r || 0)) && (!best || d < best.d)) best = { ...h, d };
     }
@@ -506,7 +614,10 @@ function controlClick(x, y) {
 // tracking: current (real-time, not video-delayed) az/el of the target, sent every 2 s; the server moves the
 // rotator when the target is far enough off and ends tracking if these confirmations stop
 function trackLook(t, date) {
-  if (t.type === 'plane') { const p = planes.find(q => q.hex === t.key); return p ? planeLook(p, date / 1000) : null; }
+  if (t.type === 'plane') {                             // local ADS-B first, else rsanttracker's A/S list (longer range)
+    const p = planes.find(q => q.hex === t.key) || (scat?.aircraft || []).find(q => q.id === t.key);
+    return p ? planeLook(p, date / 1000) : null;
+  }
   for (const g of Object.values(SAT)) { const s = g.recs.find(r => r.rec.satnum === t.key); if (s) return satLook(s.rec, date); }
   return null;
 }
@@ -543,7 +654,7 @@ function startTrack(t) { gotoName = null; track = { ...t, since: Date.now() }; f
 async function trackTick() {
   if (!track) return;
   const l = trackLook(track, new Date(Date.now() + clockOffset));
-  if (!l || l.el < 0) {                                  // out of ADS-B range / below the horizon / satellite set
+  if (!l || l.el < (track.minEl ?? 0)) {                 // out of ADS-B range / below the horizon / satellite set
     const n = track.name; track = null; ctl({ cmd: 'untrack' }); flash(`Rotator: ${n} left view – tracking ended`); return;
   }
   const t = track;
@@ -650,13 +761,13 @@ $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.class
 // layer switches (remembered per browser)
 const LAYER_OF = { beacon: 'beacons', radio: 'beacons', landmark: 'poi', summit: 'summits' };
 for (const [k, btn] of Object.entries({ weather: 'lyWx', beacons: 'lyBeacons', poi: 'lyPoi', summits: 'lySummits', planes: 'lyPlanes',
-                                         sky: 'lySky', sats: 'lySats', hamsats: 'lyHam' })) {
+                                         sky: 'lySky', sats: 'lySats', hamsats: 'lyHam', rs: 'lyRs', as: 'lyAs', tropo: 'lyTropo' })) {
   if (!enabled(k)) { $(btn).hidden = true; continue; }
   $(btn).classList.toggle('on', layers[k]);
   $(btn).onclick = () => {
     layers[k] = !layers[k]; $(btn).classList.toggle('on', layers[k]);
     try { localStorage.setItem('hamcam.layers', JSON.stringify(layers)); } catch { /* private mode */ }
-    if (shownAz != null) { drawMarks(shownAz); drawPlanes(shownAz); drawSats(shownAz); }
+    if (shownAz != null) { drawMarks(shownAz); drawPlanes(shownAz); drawSats(shownAz); drawScatter(shownAz); }
     showWeather(lastWx);
   };
 }

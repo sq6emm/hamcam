@@ -17,6 +17,8 @@ Env:
                                often; tracking ends when the page stops confirming it for TRACK_LEASE_S
   ROT_EL_MIN, ROT_EL_MAX       elevation range sent to rotctld (az-only rotators ignore it)
   QTHDB_URL                    callsign -> locator lookup for the "point to" field (default https://qthdb.hamradio.pl)
+  RSANT_URL, RSANT_POLL_S      optional rsanttracker (rain/snow/air scatter + tropo) base URL, e.g. http://host:8073;
+                               its /api/state is read (never its tracking endpoints) and served compact at /telemetry/scatter
   BEACON_MAX_KM, BEACON_KEEP_DAYS  radius from the station; the API only lists beacons reported recently, so the
                                list is kept in BEACON_FILE and a beacon is dropped only when QRT or unreported > KEEP_DAYS
 """
@@ -55,6 +57,8 @@ TRACK_MIN_INTERVAL_S = float(os.environ.get("TRACK_MIN_INTERVAL_S", "3"))
 TRACK_LEASE_S = float(os.environ.get("TRACK_LEASE_S", "10"))
 ROT_EL_MIN = float(os.environ.get("ROT_EL_MIN", "0"))
 ROT_EL_MAX = float(os.environ.get("ROT_EL_MAX", "90"))
+RSANT_URL = os.environ.get("RSANT_URL", "").rstrip("/")
+RSANT_POLL = float(os.environ.get("RSANT_POLL_S", "5"))
 QTHDB_URL = os.environ.get("QTHDB_URL", "https://qthdb.hamradio.pl").rstrip("/")
 OBJECTS_FILE = os.environ.get("OBJECTS_FILE", "/config/objects.json")
 SOTA_ASSOCIATIONS = [a for a in os.environ.get("SOTA_ASSOCIATIONS", "SP,OK").split(",") if a]
@@ -174,6 +178,58 @@ async def heartbeat_loop() -> None:
     while True:
         await asyncio.sleep(1)
         await broadcast(snapshot())
+
+
+# ---------- scatter + tropo from rsanttracker (read-only) ----------
+scatter = {"updated": None, "error": None}
+
+
+def _pick(d: dict, keys: tuple) -> dict:
+    return {k: d.get(k) for k in keys}
+
+
+def compact_scatter(d: dict) -> dict:
+    """Only what the overlay needs: scatter cells above the horizon, aircraft usable for the DX path, tropo state."""
+    t = d.get("time") or time.time()
+    cells = [_pick(c, ("id", "kind", "snow", "lat", "lon", "alt_m", "top_m", "max_dbz", "area_km2", "score", "az", "el",
+                       "range_km", "dist_km", "reachable", "atten_db", "scatter_angle"))
+             for c in d.get("cells", []) if c.get("visible") and not c.get("stale")]
+    planes = [{**_pick(a, ("id", "flight", "reg", "type", "lat", "lon", "alt_m", "gs_kmh", "track", "score", "doppler_hz",
+                           "scatter_angle", "dx_el", "length_m")), "t": t - (a.get("age_s") or 0)}
+              for a in d.get("aircraft", []) if a.get("usable")]
+    prop = d.get("propagation") or {}
+    model, fc, mp = prop.get("model") or {}, prop.get("forecast") or {}, prop.get("map") or {}
+    now_h = min(mp.get("hours") or [{}], key=lambda h: abs((h.get("t") or 0) - t))
+    tropo = {"state": model.get("state"), "k": prop.get("k"), "dndh": model.get("dndh"), "ducts": model.get("ducts") or [],
+             "freezing_level_m": prop.get("freezing_level_m"), "model_time": model.get("model_time"),
+             "window": fc.get("window"), "best": fc.get("best"), "map_best": mp.get("best"),
+             "reach_km": now_h.get("reach_km"), "level": now_h.get("level"), "n_az": mp.get("n_az")}
+    dx = d.get("dx") or {}
+    return {"updated": t, "error": None, "radio": d.get("radio"), "radar": (d.get("radar") or {}).get("status"),
+            "dx": _pick(dx, ("callsign", "locator", "lat", "lon", "alt_m", "dist_km")) if dx.get("lat") is not None else None,
+            "cells": cells, "aircraft": planes, "tropo": tropo}
+
+
+async def scatter_loop() -> None:
+    if not RSANT_URL:
+        return
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as s:
+        while True:
+            try:
+                async with s.get(RSANT_URL + "/api/state") as r:
+                    r.raise_for_status()
+                    scatter.clear(); scatter.update(compact_scatter(await r.json(content_type=None)))
+            except Exception as e:
+                if scatter.get("error") is None:
+                    print(f"rsanttracker error: {e!r}")
+                scatter["error"] = repr(e)[:200]
+            await asyncio.sleep(RSANT_POLL)
+
+
+def scatter_response(request: web.Request) -> web.Response:
+    if not RSANT_URL:
+        return web.json_response({"enabled": False})
+    return web.json_response({"enabled": True, **scatter})
 
 
 # ---------- beacons ----------
@@ -582,7 +638,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
 
 async def on_startup(app: web.Application) -> None:
-    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop(), control_watchdog()):
+    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop(), control_watchdog(), scatter_loop()):
         asyncio.create_task(coro)
 
 
@@ -594,6 +650,7 @@ app.router.add_get("/telemetry/control", control_get)
 app.router.add_post("/telemetry/control", control_post)
 app.router.add_get("/telemetry/locate/{call}", locate)
 app.router.add_get("/telemetry/tle/{group}", tle_response)
+app.router.add_get("/telemetry/scatter", scatter_response)
 app.router.add_get("/telemetry/summits", lambda r: web.json_response({"updated": summits["updated"], "summits": [
     {k: x[k] for k in ("ref", "name", "lat", "lon", "h")} for x in summits["summits"]]}))
 app.on_startup.append(on_startup)

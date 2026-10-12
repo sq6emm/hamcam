@@ -8,7 +8,7 @@ const errs = []; p.on('pageerror', e => errs.push(e.message));
 await p.setViewport({ width: 1400, height: 900 });
 await p.goto(U, { waitUntil: 'load' }); await sleep(4000);
 await p.click('#ctl'); await sleep(300);
-for (const w of [1920, 1421, 1420, 1400, 1310, 1300, 1280, 1100, 1024, 900, 800, 640, 390]) {
+for (const w of [1920, 1411, 1410, 1400, 1300, 1290, 1280, 1100, 1024, 900, 800, 640, 390]) {
   await p.setViewport({ width: w, height: 900 }); await sleep(400);
   const r = await p.evaluate(() => {
     const bar = document.getElementById('bar'), vw = innerWidth;
