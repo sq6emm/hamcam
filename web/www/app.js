@@ -709,7 +709,8 @@ drawTape(0);
 setInterval(() => {
   // server-synced UTC date and time, whole seconds (e.g. 2026-10-11 23:08:15 UTC)
   const d = new Date(Date.now() + clockOffset);
-  $('clock').textContent = d.toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
+  const iso = d.toISOString();                          // the date part is hidden on narrow screens (CSS)
+  $('clock').innerHTML = `<span class="date">${iso.slice(0, 10)} </span>${iso.slice(11, 19)} UTC`;
 }, 200);
 
 // ---------- screenshot: current video frame + full HUD, at native resolution ----------
