@@ -102,7 +102,7 @@ re-reads it on its next refresh).
     `tilt` (`A`, `B`, `ref_az`: mast tilt, from `tools/tilt/tilt_calib.py`)
   - `az_delay`: how much the video lags the rotator readout (s); `boresight`: antenna direction in the frame (fractions)
 - `display`: `title` (browser tab title, after the call sign), `layers` – per layer `weather`, `beacons`, `poi`, `summits`,
-  `planes`, `sky`, `sats`, `hamsats`, `rs`, `as`, `tropo`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
+  `planes`, `sky`, `sats`, `hamsats`, `rs`, `as`, `fixed`, `tropo`: `"on"` (shown), `"off"` (button, hidden at start) or `"disabled"` (no button,
   no data loaded); `video_lag_s` (camera→browser latency for aircraft/satellite positions), `geoid_n_m` (geoid height at the
   station, for ADS-B GPS altitudes), `adsb_max_km`.
 - `objects`: your own points – `landmark` (with `lat`, `lon`, `h` = top height ASL) or `radio` (`locator`); add/remove freely.
@@ -115,18 +115,21 @@ With `RSANT_URL` set, the telemetry service reads [rsanttracker](../rsanttracker
 `RSANT_POLL_S` (5 s) – read only, it never uses its tracking endpoints – and serves a compact copy at
 `/telemetry/scatter`. Three layers use it:
 
-- **R/S**: rain (blue), snow (cyan, dashed) and hail (magenta) scatter cells above the horizon, drawn at rsanttracker's
-  aim point with a ring sized by the cell area; label: reflectivity, range, aim height. Dimmed when the DX station can't
+- **R/S**: rain (blue), snow (cyan, dashed) and hail (magenta) scatter cells above the horizon: a band across the cell's
+  azimuth width (from its radar outline), from rsanttracker's aim point up to the echo top; label: reflectivity the beam
+  sees (maximum in brackets), range, aim height, motion when the cell moves. Dimmed when the DX station can't
   see the cell.
   Cells outside the view: an arrow at each end of the tape shows the best-scoring one on that side
   (`◀ R/S 48 dBZ 100° 120 km +1`).
 - **A/S**: aircraft rsanttracker rates usable for scatter towards its DX station (diamonds; relative score, scattering
   angle, range), dead-reckoned to the video time like the Planes layer, plus the DX direction on the tape.
+- **Fixed**: fixed reflectors both stations see – terrain slopes (triangles) and named targets such as the Śnieżka
+  observatory (stars); label: RCS, range, grazing angle. Off-screen ones get an arrow at the tape end like R/S.
 - **Tropo**: state (normal / enhanced / super-refraction / ducting), k, dN/dh and the ducts that trap the band, the next
   opening or the best forecast direction; directions where enhanced conditions reach out now are marked on the tape,
   and arrows at the tape ends point to the nearest such direction outside the view on each side (`◀ NE 450 km +2`).
 
-With Control on, a click on a cell points the rotator at it, a click on an off-screen arrow turns it to that
+With Control on, a click on a cell or a fixed reflector points the rotator at it, a click on an off-screen arrow turns it to that
 direction or cell; a click on an A/S aircraft tracks it.
 
 ## Derived automatically from the station location

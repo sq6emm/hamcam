@@ -207,11 +207,16 @@ def _pick(d: dict, keys: tuple) -> dict:
 
 
 def compact_scatter(d: dict) -> dict:
-    """Only what the overlay needs: scatter cells above the horizon, aircraft usable for the DX path, tropo state."""
+    """Only what the overlay needs: scatter cells above the horizon, aircraft usable for the DX path, fixed reflectors
+    (terrain slopes, named targets) above the horizon, tropo state."""
     t = d.get("time") or time.time()
     cells = [_pick(c, ("id", "kind", "snow", "lat", "lon", "alt_m", "top_m", "max_dbz", "area_km2", "score", "az", "el",
-                       "range_km", "dist_km", "reachable", "atten_db", "scatter_angle"))
+                       "range_km", "dist_km", "reachable", "atten_db", "scatter_angle", "beam_dbz", "outline", "speed_ms",
+                       "heading", "aim_src", "dx_el"))
              for c in d.get("cells", []) if c.get("visible") and not c.get("stale")]
+    fixed = [_pick(f, ("id", "kind", "name", "lat", "lon", "alt_m", "rcs_dbsm", "score", "az", "el", "range_km", "dist_km",
+                       "grazing_deg", "area_km2", "scatter_angle", "atten_db", "dx_el"))
+             for f in d.get("fixed") or [] if f.get("visible") and not f.get("blocked")]
     planes = [{**_pick(a, ("id", "flight", "reg", "type", "lat", "lon", "alt_m", "gs_kmh", "track", "score", "doppler_hz",
                            "scatter_angle", "dx_el", "length_m")), "t": t - (a.get("age_s") or 0)}
               for a in d.get("aircraft", []) if a.get("usable")]
@@ -225,7 +230,7 @@ def compact_scatter(d: dict) -> dict:
     dx = d.get("dx") or {}
     return {"updated": t, "error": None, "radio": d.get("radio"), "radar": (d.get("radar") or {}).get("status"),
             "dx": _pick(dx, ("callsign", "locator", "lat", "lon", "alt_m", "dist_km")) if dx.get("lat") is not None else None,
-            "cells": cells, "aircraft": planes, "tropo": tropo}
+            "cells": cells, "aircraft": planes, "fixed": fixed, "tropo": tropo}
 
 
 async def scatter_loop() -> None:

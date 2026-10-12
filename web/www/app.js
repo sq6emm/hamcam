@@ -45,7 +45,7 @@ scene.objects.forEach(placeObject);
 const fixedObjects = scene.objects.slice();
 const beaconsNow = () => scene.objects.filter(o => o.kind === 'beacon'), summitsNow = () => scene.objects.filter(o => o.kind === 'summit');
 // layers: objects.json display.layers.<name> = "on" (shown) | "off" (button, hidden at start) | "disabled" (no button, no data)
-const LAYER_NAMES = ['weather', 'beacons', 'poi', 'summits', 'planes', 'sky', 'sats', 'hamsats', 'rs', 'as', 'tropo'];
+const LAYER_NAMES = ['weather', 'beacons', 'poi', 'summits', 'planes', 'sky', 'sats', 'hamsats', 'rs', 'as', 'fixed', 'tropo'];
 const layerMode = k => (DISP.layers || {})[k] ?? 'on';
 const enabled = k => layerMode(k) !== 'disabled';
 const layers = Object.fromEntries(LAYER_NAMES.map(k => [k, layerMode(k) === 'on']));
@@ -138,10 +138,19 @@ function el(tag, attrs, parent) {
   const g = $('boresight');
   // dashed vertical line through the image centre, from the tape down to the bottom of the frame
   el('line', { x1: bx, y1: 84, x2: bx, y2: H }, g).style.strokeDasharray = '6 10';
-  // elevation scale (true elevation, from the camera model: pitch, roll, lens distortion)
-  camera.setYaw(0);
+})();
+// elevation scale (true elevation at the boresight, from the camera model: pitch, roll, lens distortion and the
+// azimuth-dependent tilt correction, so it is redrawn when the heading changes by a degree or more)
+let scaleYaw = null;
+function drawElScale(yaw) {
+  if (scaleYaw != null && Math.abs(((yaw - scaleYaw + 540) % 360) - 180) < 1) return;
+  scaleYaw = yaw;
+  let g = $('elscale');
+  if (!g) { g = el('g', { id: 'elscale' }, $('boresight')); }
+  g.replaceChildren();
+  camera.setYaw(yaw);
   for (const e of [-15, -10, -5, 0, 5, 10, 15]) {
-    const y = camera.project(0, e).y;
+    const y = camera.project(yaw, e).y;
     if (y < 100 || y > H - 20) continue;
     const len = e === 0 ? 30 : 16;
     el('line', { x1: bx - len, y1: y, x2: bx + len, y2: y }, g);
@@ -149,10 +158,11 @@ function el(tag, attrs, parent) {
     const t = el('text', { x: bx + len + 8, y: y + 8, class: 'elv' }, g);
     t.textContent = `${e > 0 ? '+' : e < 0 ? '\u2212' : ''}${Math.abs(e)}°`;
   }
-})();
+}
 
 const CARD = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
 function drawTape(az) {
+  drawElScale(az + cfg.azOff);
   const g = $('tape');
   g.replaceChildren();
   el('path', { d: `M0 80 H${W}`, 'stroke-width': 2 }, g);
@@ -356,14 +366,15 @@ setInterval(() => drawPlanes(shownAz), 100);
 
 // ---------- scatter + tropo (rsanttracker, read via the telemetry service): R/S cells, A/S aircraft, tropo state ----------
 const RS_COL = { rain: '#60a5fa', snow: '#67e8f9', hail: '#f472b6' }, AS_COL = '#fb923c';
+const FIX_COL = { terrain: '#d4a373', named: '#c084fc' };
 const TROPO_COL = { 'sub-refraction': '#9aa3ad', normal: '#c9d1d9', enhanced: '#86efac', 'super-refraction': '#fde047', ducting: '#f472b6' };
 let scat = null;                                       // last /telemetry/scatter answer (null: none yet / not configured)
 async function pollScatter() {
-  if (!['rs', 'as', 'tropo'].some(enabled)) return;
+  if (!['rs', 'as', 'fixed', 'tropo'].some(enabled)) return;
   try {
     const d = await tfetch('telemetry/scatter', { cache: 'no-store' }, 6000).then(r => r.json());
-    if (!d.enabled) { for (const b of ['lyRs', 'lyAs', 'lyTropo']) $(b).hidden = true; return; }
-    for (const [k, b] of [['rs', 'lyRs'], ['as', 'lyAs'], ['tropo', 'lyTropo']]) $(b).hidden = !enabled(k);
+    if (!d.enabled) { for (const b of ['lyRs', 'lyAs', 'lyFixed', 'lyTropo']) $(b).hidden = true; return; }
+    for (const [k, b] of [['rs', 'lyRs'], ['as', 'lyAs'], ['fixed', 'lyFixed'], ['tropo', 'lyTropo']]) $(b).hidden = !enabled(k);
     d.aircraft = (d.aircraft || []).map(a => ({ ...a, v: (a.gs_kmh || 0) / 3.6, trk: (a.track || 0) * D2R, vz: 0, h: a.alt_m }));
     scat = d.updated ? d : null;
   } catch { /* keep the last answer */ }
@@ -405,14 +416,26 @@ function drawScatter(az) {
     shown.sort((a, b) => b.c.score - a.c.score);
     for (const { c, q } of shown.slice(0, 8)) {
       const kind = c.snow ? 'snow' : c.kind in RS_COL ? c.kind : 'rain', col = RS_COL[kind];
-      const r = Math.max(camera.degToPx(Math.atan(Math.sqrt((c.area_km2 || 1) / Math.PI) / Math.max(c.range_km, 1)) * R2D), 14);
       const op = c.reachable ? 1 : 0.5;
-      const ring = el('circle', { cx: q.x, cy: q.y, r, fill: 'none', 'stroke-width': 3, 'stroke-dasharray': kind === 'snow' ? '8 6' : '' }, g);
-      ring.style.stroke = col; ring.style.opacity = op;
-      el('circle', { cx: q.x, cy: q.y, r: 4, fill: col }, g).style.opacity = op;
-      tag(q.x + r + 8, q.y - 4, `${kind === 'rain' ? 'R/S' : kind === 'snow' ? 'S/S' : 'hail'} ${Math.round(c.max_dbz)} dBZ`,
-          `${fmtKm(c.range_km * 1000)} · aim ${(c.alt_m / 1000).toFixed(1)} km${c.reachable ? '' : ' · no DX view'}`, col, 'start', op);
-      hits.scatter.push({ x: q.x, y: q.y, r, az: c.az, el: c.el, name: `R/S ${c.id}` });
+      // azimuth width from the cell's bounding box, height from the aim point up to the echo top
+      let x0 = q.x - 10, x1 = q.x + 10, yTop = q.y - 10;
+      if (c.outline && c.outline.length === 2) {
+        const [[la1, lo1], [la2, lo2]] = c.outline, xs = [];
+        for (const [la, lo] of [[la1, lo1], [la1, lo2], [la2, lo1], [la2, lo2]]) {
+          const p = camera.project(azElOf(ST, la, lo, c.alt_m).az, c.el); if (p.front) xs.push(p.x);
+        }
+        if (xs.length) { x0 = Math.min(x0, ...xs); x1 = Math.max(x1, ...xs); }
+      }
+      if (c.top_m > c.alt_m) yTop = Math.min(yTop, camera.project(c.az, azElOf(ST, c.lat, c.lon, c.top_m).el).y);
+      const band = el('rect', { x: x0, y: yTop, width: x1 - x0, height: q.y + 6 - yTop, rx: 5, 'stroke-width': 3, 'stroke-dasharray': kind === 'snow' ? '8 6' : '' }, g);
+      band.style.stroke = col; band.style.fill = col; band.style.fillOpacity = 0.15; band.style.opacity = op;
+      el('circle', { cx: q.x, cy: q.y, r: 5, fill: col }, g).style.opacity = op;
+      const r = Math.max((x1 - x0) / 2, 14);
+      const dbz = c.beam_dbz != null && Math.round(c.beam_dbz) !== Math.round(c.max_dbz) ? `${Math.round(c.beam_dbz)} dBZ (max ${Math.round(c.max_dbz)})` : `${Math.round(c.max_dbz)} dBZ`;
+      const move = c.speed_ms > 1 ? ` · ${AZ16[Math.round(c.heading / 22.5) % 16]} ${Math.round(c.speed_ms)} m/s` : '';
+      tag(x1 + 8, q.y - 4, `${kind === 'rain' ? 'R/S' : kind === 'snow' ? 'S/S' : 'hail'} ${dbz}`,
+          `${fmtKm(c.range_km * 1000)} · aim ${(c.alt_m / 1000).toFixed(1)} km${move}${c.reachable ? '' : ' · no DX view'}`, col, 'start', op);
+      hits.scatter.push({ x: (x0 + x1) / 2, y: q.y, r, az: c.az, el: c.el, name: `R/S ${c.id}` });
     }
     for (const side of ['l', 'r']) {                                 // off-screen: best-scoring cell on each side
       const o = off[side].sort((a, b) => b.score - a.score), c = o[0];
@@ -446,6 +469,31 @@ function drawScatter(az) {
         el('path', { d: `M${x - 10} 78 L${x + 10} 78 L${x} 94 Z`, fill: AS_COL }, g);
         label(g, x, ly, `DX ${scat.dx.callsign || scat.dx.locator}`, AS_COL, 'middle');
       }
+    }
+  }
+  if (layers.fixed) {                                                // fixed reflectors: terrain slopes, named targets
+    const shown = [], off = { l: [], r: [] };
+    for (const f of scat.fixed || []) {
+      if (!inView(f.az)) { off[turn(f.az) < 0 ? 'l' : 'r'].push(f); continue; }
+      const q = camera.project(f.az, f.el);
+      if (onFrame(q)) shown.push({ f, q });
+    }
+    shown.sort((a, b) => b.f.score - a.f.score);
+    const fname = f => f.kind === 'named' ? (f.name || f.id) : `terrain ${f.id}`;
+    for (const { f, q } of shown.slice(0, 8)) {
+      const col = FIX_COL[f.kind] || FIX_COL.terrain, r = 13;
+      const d = f.kind === 'named'
+        ? Array.from({ length: 10 }, (_, i) => { const a = i * Math.PI / 5 - Math.PI / 2, rr = i % 2 ? r * 0.45 : r; return `${i ? 'L' : 'M'}${(q.x + rr * Math.cos(a)).toFixed(1)} ${(q.y + rr * Math.sin(a)).toFixed(1)}`; }).join('') + 'Z'
+        : `M${q.x - r} ${q.y + r * 0.6} L${q.x} ${q.y - r} L${q.x + r} ${q.y + r * 0.6} Z`;
+      el('path', { d, fill: 'none', 'stroke-width': 3, class: 'fix' }, g).style.stroke = col;
+      tag(q.x + r + 8, q.y - 4, `${fname(f)}`, `${Math.round(f.rcs_dbsm)} dBsm · ${fmtKm(f.range_km * 1000)}${f.grazing_deg != null ? ` · grazing ${Math.round(f.grazing_deg)}°` : ''}`, col, 'start');
+      hits.scatter.push({ x: q.x, y: q.y, r, az: f.az, el: f.el, name: fname(f) });
+    }
+    for (const side of ['l', 'r']) {                                 // off-screen: best-scoring reflector on each side
+      const o = off[side].sort((a, b) => b.score - a.score), f = o[0];
+      if (!f) continue;
+      edge[side].push({ txt: `${fname(f)} ${Math.round(wrap360(f.az))}° ${fmtKm(f.range_km * 1000)}${o.length > 1 ? ` +${o.length - 1}` : ''}`,
+                        col: FIX_COL[f.kind] || FIX_COL.terrain, az: f.az, el: f.el, name: fname(f) });
     }
   }
   let panel = null;
@@ -600,7 +648,7 @@ function drawProbe() {
   lines.forEach((l, i) => label(g, x + 28, y + 8 + i * 30, l, '#ff9ae6'));
 }
 $('frame').addEventListener('click', ev => {
-  const r = $('hud').getBoundingClientRect();
+  const r = $('video').getBoundingClientRect();         // same box as the HUD, and still measurable with the overlay off
   const x = (ev.clientX - r.left) / r.width * W, y = (ev.clientY - r.top) / r.height * H;
   if (x < 0 || x > W || y < 0 || y > H || shownAz == null) return;
   if (ctlOn) { controlClick(x, y); return; }
@@ -750,7 +798,7 @@ function applyZoom() {
   $('zoomRst').textContent = `${zoom.s.toFixed(1).replace(/\.0$/, '')}×`;
 }
 function zoomAt(f, cx, cy) {                           // f: factor; cx, cy: client point that stays put (default: centre)
-  const w = $('video').offsetWidth, h = $('video').offsetHeight, r = $('hud').getBoundingClientRect();
+  const w = $('video').offsetWidth, h = $('video').offsetHeight, r = $('video').getBoundingClientRect();
   const ox = r.left - zoom.x * w, oy = r.top - zoom.y * h;          // untransformed box origin
   const px = (cx ?? ox + w / 2) - ox, py = (cy ?? oy + h / 2) - oy;  // point in box px
   const s1 = clampN(zoom.s * f, 1, ZMAX), k = s1 / zoom.s;
@@ -807,7 +855,7 @@ $('hudToggle').onclick = e => { $('hud').classList.toggle('off'); e.target.class
 // layer switches (remembered per browser)
 const LAYER_OF = { beacon: 'beacons', radio: 'beacons', landmark: 'poi', summit: 'summits' };
 for (const [k, btn] of Object.entries({ weather: 'lyWx', beacons: 'lyBeacons', poi: 'lyPoi', summits: 'lySummits', planes: 'lyPlanes',
-                                         sky: 'lySky', sats: 'lySats', hamsats: 'lyHam', rs: 'lyRs', as: 'lyAs', tropo: 'lyTropo' })) {
+                                         sky: 'lySky', sats: 'lySats', hamsats: 'lyHam', rs: 'lyRs', as: 'lyAs', fixed: 'lyFixed', tropo: 'lyTropo' })) {
   if (!enabled(k)) { $(btn).hidden = true; continue; }
   $(btn).classList.toggle('on', layers[k]);
   $(btn).onclick = () => {

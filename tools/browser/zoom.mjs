@@ -47,10 +47,12 @@ await ctlLayout(true); await p.evaluate(() => { document.getElementById('frame')
 await p.evaluate(() => document.getElementById('ctl').click()); await sleep(100);   // off (layout with Control on is what matters)
 await p.mouse.click(1000, 450); await sleep(300); const u = await probe();
 await ctlLayout(true);
+await p.click('#hudToggle'); await sleep(200);   // overlay off: a pure pixel click, whatever markers happen to be near
 for (let i = 0; i < 4; i++) { await p.mouse.move(1000, 450); await p.mouse.wheel({ deltaY: -150 }); await sleep(80); }
 await sleep(200); await p.mouse.click(1000, 450); await sleep(1500);
 const msg = await p.$eval('#msg', e => e.textContent), m = msg.match(/→ ([\d.]+)° \/ (-?[\d.]+)°/);
 ok(m && Math.abs(m[1] - u[0]) < 0.05 && Math.abs(m[2] - u[1]) < 0.05, `zoomed control click -> "${msg}" (unzoomed probe ${u})`);
+await p.click('#hudToggle'); await sleep(100);
 await p.keyboard.press('Escape'); await sleep(500);
 console.log('page errors:', errs.length ? errs : 'none');
 await b.close();
