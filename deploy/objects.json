@@ -31,7 +31,13 @@
     "boresight": [
       0.5,
       0.265
-    ]
+    ],
+    "tilt": {
+      "A": 1.25,
+      "B": 3.944,
+      "ref_az": 121.95,
+      "_note": "2026-10-12 noon roof-edge fit (tools/tilt, 34 sectors conf>6, rms 0.28 deg, az 75-201 + 291-303; north hidden by trees = extrapolated). Check: EC chimney measured +2.35 vs fit +2.19. ?notilt disables."
+    }
   },
   "objects": [
     {
