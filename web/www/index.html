@@ -44,9 +44,10 @@
     </svg>
     <div id="msg" hidden></div>
     <div id="dayTag" hidden></div>
-    <div id="dayFade" hidden title="blend: bottom = live video, top = day picture">
+    <div id="dayEdge" hidden></div>
+    <div id="dayFade" hidden title="roll the day picture up over the live video: bottom = live, top = day picture">
       <span class="lbl">day</span>
-      <input id="dayOp" type="range" min="0" max="100" step="1" value="100" aria-label="day picture over the live video, percent">
+      <input id="dayOp" type="range" min="0" max="100" step="1" value="100" aria-label="day picture rolled up over the live video, percent of the height">
       <span class="lbl">live</span>
       <span id="dayOpTxt"></span>
     </div>
@@ -55,7 +56,7 @@
     <a class="title" href="https://github.com/sq6emm/hamcam" target="_blank" rel="noopener" title="hamcam on GitHub">hamcam</a>
     <span class="grp">
     <button id="hudToggle">Overlay</button>
-    <button id="dayBtn" hidden title="daylight picture of the same direction over the video (D key); the slider on the right blends it with the live picture">Day</button>
+    <button id="dayBtn" hidden title="daylight picture of the same direction over the video (D key); the slider on the right rolls it up or down like a blind">Day</button>
     <button id="lyWx" title="weather station">Wx</button>
     <button id="lyBeacons" title="23 cm beacons + radio stations">Beacons</button>
     <button id="lyPoi" title="local points of interest">POI</button>

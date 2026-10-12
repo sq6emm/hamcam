@@ -797,6 +797,7 @@ function applyZoom() {
   $('video').style.transform = t; $('hud').style.transform = t; $('day').style.transform = t;
   $('frame').classList.toggle('zoomed', zoom.s > 1);
   $('zoomRst').textContent = `${zoom.s.toFixed(1).replace(/\.0$/, '')}×`;
+  applyDayClip();                                     // the blind's edge stays on the same screen line
 }
 function zoomAt(f, cx, cy) {                           // f: factor; cx, cy: client point that stays put (default: centre)
   const w = $('video').offsetWidth, h = $('video').offsetHeight, r = $('video').getBoundingClientRect();
@@ -853,10 +854,11 @@ addEventListener('resize', applyZoom);
 }
 
 // ---------- Day view: daylight panorama (panorama/panorama.json, optional HAMCAM_PANORAMA mount) instead of / over the
-// video, for finding objects at night. Day button / D key: on / off; the slider on the right blends it with the live
-// picture (bottom = live only, top = day picture only; remembered per browser) ----------
-const day = { mode: 0, meta: null, view: null, loading: null, op: 1 };
-try { const v = parseFloat(localStorage.getItem('hamcam.dayOpacity')); if (v >= 0 && v <= 1) day.op = v; } catch { /* no storage */ }
+// video, for finding objects at night. Day button / D key: on / off; the slider on the right rolls the day picture up
+// over the live one like a blind (bottom = live only, top = day picture only; the edge is a line across the visible
+// view, also when zoomed; remembered per browser) ----------
+const day = { mode: 0, meta: null, view: null, loading: null, cover: 1 };
+try { const v = parseFloat(localStorage.getItem('hamcam.dayCover')); if (v >= 0 && v <= 1) day.cover = v; } catch { /* no storage */ }
 tfetch('panorama/panorama.json', { cache: 'no-cache' }).then(r => r.ok ? r.json() : null).then(m => {
   if (!m || !m.width) return;
   day.view = new DayView($('day'), { W, H, hfov: cfg.hfov, f: q.has('hfov') ? null : cfg.f, k1: cfg.k1, k2: cfg.k2, pp: cfg.pp,
@@ -864,11 +866,23 @@ tfetch('panorama/panorama.json', { cache: 'no-cache' }).then(r => r.ok ? r.json(
   if (!day.view.supported) return;                     // no WebGL2: no button
   day.meta = m; $('dayBtn').hidden = false;
 }).catch(() => {});
-function setDayOpacity(v) {
-  day.op = Math.min(1, Math.max(0, v));
-  $('day').style.opacity = day.op; $('dayOp').value = Math.round(day.op * 100);
-  $('dayOpTxt').textContent = `${Math.round(day.op * 100)}%`;
-  try { localStorage.setItem('hamcam.dayOpacity', String(day.op)); } catch { /* private mode */ }
+function setDayCover(v) {
+  day.cover = Math.min(1, Math.max(0, v));
+  $('dayOp').value = Math.round(day.cover * 100);
+  $('dayOpTxt').textContent = `${Math.round(day.cover * 100)}%`;
+  try { localStorage.setItem('hamcam.dayCover', String(day.cover)); } catch { /* private mode */ }
+  applyDayClip();
+}
+// day picture visible from the bottom of the visible view up to day.cover of its height (screen space: the canvas is
+// zoomed / panned with the video, the blind is not)
+function applyDayClip() {
+  if (!day.mode) return;
+  const c = $('day').getBoundingClientRect(), f = $('frame').getBoundingClientRect();
+  const top = Math.max(c.top, f.top), bot = Math.min(c.bottom, f.bottom), y = bot - day.cover * (bot - top);
+  day.clip = Math.min(1, Math.max(0, (y - c.top) / c.height));             // fraction of the canvas hidden from the top
+  $('day').style.clipPath = `inset(${(day.clip * 100).toFixed(3)}% 0 0 0)`;
+  const e = $('dayEdge'); e.hidden = day.cover <= 0 || day.cover >= 1;
+  e.style.top = `${y - f.top}px`; e.style.left = `${Math.max(c.left, f.left) - f.left}px`; e.style.width = `${Math.min(c.right, f.right) - Math.max(c.left, f.left)}px`;
 }
 async function setDay(on) {
   if (on && !day.view.ready) {
@@ -877,16 +891,17 @@ async function setDay(on) {
     $('msg').hidden = true;
   }
   day.mode = on ? 1 : 0;
-  $('day').hidden = !on; $('dayTag').hidden = !on; $('dayFade').hidden = !on;
+  $('day').hidden = !on; $('dayTag').hidden = !on; $('dayFade').hidden = !on; $('dayEdge').hidden = true;
   $('dayBtn').classList.toggle('on', on);
   if (!on) return;
-  setDayOpacity(day.op);
+  setDayCover(day.cover);
   $('dayTag').textContent = `day picture ${day.meta.taken_utc || ''} UTC`;
   if (shownAz != null) day.view.render((shownAz + cfg.azOff + 360) % 360);
   else flash('No rotator position: the day picture needs the azimuth');
 }
 $('dayBtn').onclick = () => setDay(!day.mode);
-$('dayOp').addEventListener('input', e => setDayOpacity(e.target.value / 100));
+$('dayOp').addEventListener('input', e => setDayCover(e.target.value / 100));
+addEventListener('resize', () => applyDayClip());
 for (const ev of ['pointerdown', 'pointermove', 'click', 'wheel', 'dblclick'])   // the slider is not a click / drag / zoom on the picture
   $('dayFade').addEventListener(ev, e => e.stopPropagation(), { passive: true });
 document.addEventListener('keydown', e => {
@@ -1045,7 +1060,10 @@ async function screenshot() {
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.drawImage(v, 0, 0, w, h);
-  if (day.mode) { ctx.globalAlpha = day.op; ctx.drawImage($('day'), 0, 0, w, h); ctx.globalAlpha = 1; }   // as on screen
+  if (day.mode && day.clip < 1) {                     // day picture below the blind's edge, as on screen
+    const c = $('day'), sy = Math.round(day.clip * c.height);
+    ctx.drawImage(c, 0, sy, c.width, c.height - sy, 0, day.clip * h, w, h - day.clip * h);
+  }
 
   // HUD as it is right now, always included even if hidden on screen (call, locator and time are in the camera OSD)
   const svg = $('hud').cloneNode(true);

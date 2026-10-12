@@ -18,7 +18,7 @@ const state = () => p.evaluate(() => {
     const d = x.getImageData(0, 0, 160, 120).data; let s = 0; for (let i = 0; i < d.length; i += 4) s += d[i] + d[i + 1] + d[i + 2];
     mean = Math.round(s / (d.length / 4) / 3);
   }
-  return { btn: btn.hidden ? 'hidden' : `${btn.textContent}${btn.classList.contains('on') ? ' (on)' : ''}`, canvas: c.hidden ? 'hidden' : `opacity ${c.style.opacity}`,
+  return { btn: btn.hidden ? 'hidden' : `${btn.textContent}${btn.classList.contains('on') ? ' (on)' : ''}`, canvas: c.hidden ? 'hidden' : 'shown',
            mean, tag: document.getElementById('dayTag').hidden ? null : document.getElementById('dayTag').textContent };
 });
 let ok = true; const check = (c, m) => { console.log(`${c ? 'PASS' : 'FAIL'} ${m}`); ok &&= c; };
@@ -28,36 +28,50 @@ for (const az of [121.95, 280, 2]) {
   const s0 = await state();
   await p.click('#dayBtn'); await sleep(4000);
   const s1 = await state();
-  check(s1.btn === 'Day (on)' && s1.canvas === 'opacity 1' && s1.mean > 20, `az ${az}: Day shows the picture ${JSON.stringify(s1)} (before ${JSON.stringify(s0)})`);
+  check(s1.btn === 'Day (on)' && s1.canvas === 'shown' && s1.mean > 20, `az ${az}: Day shows the picture ${JSON.stringify(s1)} (before ${JSON.stringify(s0)})`);
   await p.screenshot({ path: `/out/day_${Math.round(az)}.png` });
 }
-// blend slider: vertical, bottom = live (0 %), top = day (100 %); dragging it is not a click / pan on the picture
+// blind slider: vertical, bottom = live (0 %), top = day (100 %); the day picture covers the view from the bottom up to
+// that height, a line marks the edge; dragging the slider is not a click / pan on the picture
 const sl = await p.$eval('#dayOp', e => { const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, top: r.top, bottom: r.bottom, w: r.width, h: r.height }; });
 check(sl.h > 3 * sl.w, `slider is vertical (${Math.round(sl.w)}x${Math.round(sl.h)} px)`);
 const msgBefore = await p.$eval('#msg', e => e.hidden);
 await p.mouse.move(sl.x, sl.top + 4); await p.mouse.down(); await p.mouse.move(sl.x, sl.bottom - sl.h * 0.25, { steps: 8 }); await p.mouse.up(); await sleep(300);
-const op1 = await p.evaluate(() => [+document.getElementById('day').style.opacity, document.getElementById('dayOpTxt').textContent]);
-check(op1[0] > 0.15 && op1[0] < 0.35, `drag top -> 1/4 from the bottom: opacity ${op1[0]} (${op1[1]})`);
+const blind = () => p.evaluate(() => {
+  const d = document.getElementById('day'), e = document.getElementById('dayEdge'), f = document.getElementById('frame').getBoundingClientRect(), c = d.getBoundingClientRect();
+  const m = /inset\(([\d.]+)%/.exec(d.style.clipPath); const vis = { top: Math.max(c.top, f.top), bot: Math.min(c.bottom, f.bottom) };
+  return { txt: document.getElementById('dayOpTxt').textContent, inset: m ? +m[1] : null, opacity: d.style.opacity || '1',
+           edge: e.hidden ? null : +((e.getBoundingClientRect().top - vis.top) / (vis.bot - vis.top)).toFixed(3) };   // edge as fraction of the visible height
+});
+const b1 = await blind();
+check(b1.inset > 65 && b1.inset < 85 && Math.abs(b1.edge - b1.inset / 100) < 0.01 && b1.opacity === '1', `drag top -> 1/4 from the bottom: day picture covers the lower quarter ${JSON.stringify(b1)}`);
+await p.screenshot({ path: '/out/day_blind25.png' });
 await p.mouse.click(sl.x, sl.bottom - 3); await sleep(300);
-const op0 = +(await p.$eval('#day', e => e.style.opacity));
-check(op0 < 0.05, `bottom = live only: opacity ${op0}`);
+const b0 = await blind();
+check(b0.inset > 98 && b0.edge === null, `bottom = live only ${JSON.stringify(b0)}`);
 await p.mouse.click(sl.x, sl.top + 3); await sleep(300);
-const opT = +(await p.$eval('#day', e => e.style.opacity));
-check(opT > 0.95, `top = day only: opacity ${opT}`);
+const bT = await blind();
+check(bT.inset < 2 && bT.edge === null, `top = day only ${JSON.stringify(bT)}`);
 check(await p.$eval('#msg', e => e.hidden) === msgBefore && !(await p.$eval('#frame', e => e.classList.contains('zoomed'))), 'slider use did not probe / pan the picture');
 await p.mouse.click(sl.x, sl.top + sl.h * 0.4); await sleep(300);
-const opM = +(await p.$eval('#day', e => e.style.opacity));
+const opM = (await blind()).inset;
 await p.reload({ waitUntil: 'load' }); await sleep(2500); await p.click('#dayBtn'); await sleep(2500);
-const opR = +(await p.$eval('#day', e => e.style.opacity));
-check(Math.abs(opR - opM) < 0.02, `slider position remembered after reload: ${opM} -> ${opR}`);
+const opR = (await blind()).inset;
+check(Math.abs(opR - opM) < 1, `slider position remembered after reload: ${opM} -> ${opR}`);
 await p.screenshot({ path: '/out/day_blend.png' });
 await p.keyboard.press('d'); await sleep(300);
 const s3 = await state(); check(s3.btn === 'Day' && s3.canvas === 'hidden' && await p.$eval('#dayFade', e => e.hidden), `D key -> live, slider hidden: ${JSON.stringify(s3)}`);
 await p.keyboard.press('d'); await sleep(500);
-check((await state()).canvas.startsWith('opacity'), 'D key -> Day');
+check((await state()).canvas === 'shown', 'D key -> Day');
+// zoomed: the blind's edge stays at the same screen line (half the visible view), the picture moves under it
+await p.mouse.click(sl.x, (sl.top + sl.bottom) / 2); await sleep(300);
+const bz0 = await blind();
 await p.click('#zoomIn'); await p.click('#zoomIn'); await sleep(500);
 const z = await p.evaluate(() => [document.getElementById('day').style.transform, document.getElementById('hud').style.transform]);
 check(z[0] && z[0] === z[1], `zoom moves day picture with the overlay: ${z[0]}`);
+await p.mouse.move(400, 300); await p.mouse.down(); await p.mouse.move(420, 500, { steps: 6 }); await p.mouse.up(); await sleep(300);   // pan
+const bz1 = await blind();
+check(Math.abs(bz0.edge - 0.5) < 0.03 && Math.abs(bz1.edge - 0.5) < 0.03 && Math.abs(bz1.inset - bz0.inset) > 5, `zoomed: edge stays mid-view (${bz0.edge} -> ${bz1.edge}), canvas clip ${bz0.inset}% -> ${bz1.inset}%`);
 await p.screenshot({ path: '/out/day_zoom.png' });
 
 // the picture follows the azimuth: canvas differs between two headings

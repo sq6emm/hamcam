@@ -5,8 +5,8 @@ knows where the antenna points: compass tape and elevation scale, local landmark
 aircraft (ADS-B), Sun, Moon and planets, bright and amateur radio satellites, and – with rsanttracker – rain/snow
 scatter cells, aircraft scatter candidates and the tropo state. Every layer can be switched on/off. The view zooms up to
 6× with all overlays (wheel, pinch, − / + buttons or keys, `0` resets; drag to pan). At night **Day** (`D` key) lays a
-daylight picture of the same direction over the video; the slider on the right blends from live (bottom) to day
-(top) (needs a panorama from `tools/pano/`).
+daylight picture of the same direction over the video; the slider on the right rolls it up from the bottom like a
+blind (bottom = live, top = day picture) (needs a panorama from `tools/pano/`).
 From allowed networks the page can also steer the rotator: with **Control** on, a click turns the antenna to that
 point or object (az and el are sent), a click on an aircraft or satellite tracks it; the point-to field takes an azimuth (`213`, `213/10` = az/el),
 a locator (`JO80HK`) or a callsign (`SP6GWB`, looked up at qthdb.hamradio.pl); **STOP** / Esc stops at once.
