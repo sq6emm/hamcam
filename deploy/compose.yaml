@@ -44,7 +44,7 @@ services:
       TLE_GROUPS: ${TLE_GROUPS:-visual,amateur}
       SOTA_ASSOCIATIONS: ${SOTA_ASSOCIATIONS:-SP,OK}
       SUMMIT_MAX_KM: ${SUMMIT_MAX_KM:-250}
-      CONTROL_ALLOW: ${CONTROL_ALLOW:-}  # rotator control for these networks (CIDRs); empty = disabled
+      CONTROL_ALLOW: ${CONTROL_ALLOW:-}  # rotator control for these networks (CIDRs or addresses, comma-separated); empty = disabled
       TRACK_STEP_DEG: ${TRACK_STEP_DEG:-2}
       TRACK_MIN_INTERVAL_S: ${TRACK_MIN_INTERVAL_S:-3}
       TRACK_LEASE_S: ${TRACK_LEASE_S:-10}

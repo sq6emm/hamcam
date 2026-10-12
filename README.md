@@ -82,7 +82,7 @@ re-reads it on its next refresh).
 | `ADSB_URL` | nginx | `aircraft.json` of the ADS-B receiver (readsb / tar1090 / ultrafeeder) |
 | `BEACON_BAND`, `BEACON_MAX_KM`, `BEACON_KEEP_DAYS` | telemetry | IARU beacon list: band (`23cm`), radius from the station (900), drop after N days unreported (90) |
 | `TLE_GROUPS` | telemetry | CelesTrak groups for the satellite layers (`visual,amateur`) |
-| `CONTROL_ALLOW` | telemetry | networks (CIDRs) allowed to steer the rotator from the page; **empty = disabled** |
+| `CONTROL_ALLOW` | telemetry | clients allowed to steer the rotator from the page: CIDRs or single addresses (IPv4/IPv6), comma-separated, e.g. `192.168.0.0/16,10.8.0.0/24,203.0.113.7`; invalid entries are skipped and logged, the list in effect is logged at start; **empty = disabled** |
 | `TRUSTED_PROXY` | web | public front proxy; only its `X-Forwarded-For` is trusted (its last entry), so visitors coming through it are judged by their real address |
 | `QTHDB_URL` | telemetry | callsign → locator lookup for the point-to field (`https://qthdb.hamradio.pl`) |
 | `RSANT_URL` | telemetry | [rsanttracker](#scatter-and-tropo) base URL (e.g. `http://192.168.12.12:8073`); empty = R/S, A/S, Tropo hidden |
