@@ -12,6 +12,11 @@ dsm = np.where(np.isnan(dsm), np.nanmin(dsm), dsm).astype(np.float32)
 dsm = cv2.morphologyEx(dsm, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))          # drop poles / wires
 _st = json.load(open("/www/objects.json"))["station"]          # antenna location: same config as the page
 E0, N0 = Transformer.from_crs(4326, 2180, always_xy=True).transform(_st["lon"], _st["lat"]); HS = _st["h"]
+# PL-1992 grid north is not true north: grid azimuth = true azimuth + GAMMA (+1.60 deg here, meridian convergence
+# west of the 19 deg E central meridian). The camera works in true azimuth, the DSM in grid coordinates.
+_t = Transformer.from_crs(4326, 2180, always_xy=True); _e, _n = _t.transform(_st["lon"], _st["lat"] + 0.01)
+GAMMA = math.degrees(math.atan2(_e - E0, _n - N0))     # grid azimuth of true north
+print(f"grid convergence: grid az = true az {GAMMA:+.2f} deg", flush=True)
 # building mask (1 m grid, same as DSM), dilated 1 m so roof edges are included
 cache = "/g/building_mask.npy"
 if os.path.exists(cache): bmask = np.load(cache)
@@ -42,11 +47,11 @@ def proj(ax, az, el):
 D = np.arange(60.0, 4100.0, 0.5)
 AZ = np.arange(0, 360, 0.1); EXP = np.full(len(AZ), np.nan); DIST = np.full(len(AZ), np.nan)
 for i, az in enumerate(AZ):
-    e = E0 + D * math.sin(math.radians(az)); n = N0 + D * math.cos(math.radians(az))
+    e = E0 + D * math.sin(math.radians(az + GAMMA)); n = N0 + D * math.cos(math.radians(az + GAMMA))
     c = (e - e_min).astype(int); r = (n_max - n).astype(int)
     ok = (r >= 0) & (r < dsm.shape[0]) & (c >= 0) & (c < dsm.shape[1])
     if not ok.any(): continue
-    el = np.full(len(D), -90.0); el[ok] = np.degrees(np.arctan2(dsm[r[ok], c[ok]] - HS, D[ok]))
+    el = np.full(len(D), -90.0); el[ok] = np.degrees(np.arctan2(dsm[r[ok], c[ok]] - HS - D[ok] ** 2 / (2 * 6371000.0) * 0.87, D[ok]))   # curvature + refraction
     j = int(np.argmax(el))
     if bmask[r[j], c[j]] and D[j] > 150:
         # roof must stand clear: the ray just above it should hit nothing within 0.15 deg further out
@@ -65,8 +70,9 @@ for path in sorted(glob.glob(f"{FR}/rot*.jpg")):
         ok = (xi > 2) & (xi < W - 3) & (yi > 2) & (yi < H - 3)
         v = np.zeros(len(az_)); v[ok] = np.maximum.reduce([edge[yi[ok] + d, xi[ok]] for d in (-1, 0, 1)])
         return v
-    # 1) frame-wide azimuth/elevation offset (rotator scatter), coarse
-    best = max(((score(azs + da, els + de).mean(), da, de) for da in np.arange(-1.0, 1.01, 0.1) for de in np.arange(-3, 3.01, 0.05)))
+    # 1) frame-wide azimuth/elevation offset: the rotator reads 0.3-0.5 deg low (2026-10-13: EC chimney, CZK tower) and
+    #    in whole degrees -> search -0.2..+1.0 only (a wider search locks onto wrong edges)
+    best = max(((score(azs + da, els + de).mean(), da, de) for da in np.arange(-0.2, 1.01, 0.1) for de in np.arange(-3, 3.01, 0.05)))
     da = best[1]
     # 2) per 6-deg sector: elevation offset
     vis = img.copy()

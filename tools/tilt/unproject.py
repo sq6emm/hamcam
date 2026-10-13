@@ -38,3 +38,14 @@ for a in args:
     x, y = map(float, a.split(","))
     az, el, raw = unproject(x, y, yaw)
     print(f"px {x:.1f},{y:.1f}: az {az:.2f}  el {el:.3f} (model incl. tilt)  el without tilt {raw:.3f}")
+
+def project(az, el, yaw, t=T):
+    """true az/el -> frame pixel (inverse of unproject)"""
+    p, tt, r = math.radians(yaw - A0), math.radians(cam["pitch"] - E0), math.radians(cam["roll"])
+    fwd = np.array([math.sin(p) * math.cos(tt), math.cos(p) * math.cos(tt), math.sin(tt)])
+    r0 = np.array([math.cos(p), -math.sin(p), 0.0]); u0 = np.cross(r0, fwd)
+    right = r0 * math.cos(r) + u0 * math.sin(r); up = u0 * math.cos(r) - r0 * math.sin(r)
+    a, e = math.radians(az), math.radians(el + tilt(az, t))
+    d = np.array([math.sin(a) * math.cos(e), math.cos(a) * math.cos(e), math.sin(e)])
+    Z = d @ fwd; X, Y = d @ right / Z, d @ up / Z; r2 = X * X + Y * Y; s = 1 + K1 * r2 + K2 * r2 * r2
+    return CX + F * X * s, CY - F * Y * s
