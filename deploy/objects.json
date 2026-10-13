@@ -57,12 +57,20 @@
       "src": "Centrum Zarządzania Kryzysowego tower (user, 2026-10-13): position from the user, red lights on top and in the middle. Top measured by the camera 2026-10-13 (el 1.99 at 2.25 km; thin mast, not in the LiDAR surface model), ground 120.7 m -> ~90 m tall"
     },
     {
-      "name": "Iglica",
+      "name": "P4 mast Majakowskiego",
       "kind": "landmark",
-      "lat": 51.107551,
-      "lon": 17.075417,
-      "h": 208,
-      "src": "OSM way 312927675 (90 m)"
+      "lat": 51.125923,
+      "lon": 16.947446,
+      "h": 141.3,
+      "src": "rooftop base-station mast (user's position, 2026-10-12/13), UKE: P4 sp. z o.o. 'Majakowskiego 30-40' (registered ~65 m away, coordinates rounded). Top 141.3 m ASL = LiDAR NMPT 2024 peak 4 m from the point (roof ~136); camera 2026-10-13 at rotator 73: el 1.32 -> 142.0"
+    },
+    {
+      "name": "T-Mobile mast Metalowców",
+      "kind": "landmark",
+      "lat": 51.129637,
+      "lon": 16.953767,
+      "h": 154.3,
+      "src": "base-station mast (user's position, 2026-10-13), UKE: T-Mobile Polska 'Metalowców 25', IdStacji 46038 (registered 13 m away). Not in the LiDAR surface model (thin); top 154.3 m ASL measured by the camera 2026-10-13 at rotator 57 (el 1.25 at 983 m), ground 118.5 -> ~36 m tall"
     },
     {
       "name": "Ślęża RTCN",
