@@ -33,10 +33,10 @@
       0.265
     ],
     "tilt": {
-      "A": 1.25,
-      "B": 3.944,
+      "A": 1.339,
+      "B": 4.108,
       "ref_az": 121.95,
-      "_note": "2026-10-12 noon roof-edge fit (tools/tilt, 34 sectors conf>6, rms 0.28 deg, az 75-201 + 291-303; north hidden by trees = extrapolated). Check: EC chimney measured +2.35 vs fit +2.19. ?notilt disables."
+      "_note": "2026-10-12 noon roof-edge fit (tools/tilt, 33 sectors conf>6, az 75-201 + 291-303; north hidden by trees = extrapolated), constrained 2026-10-13 09 UTC by EC chimney top vs Sky Tower top in one frame (LiDAR NMPT 2024 heights): rms 0.293 deg; both landmarks within 0.01 deg. Before: A 1.25 B 3.944. ?notilt disables."
     }
   },
   "objects": [
@@ -67,10 +67,10 @@
     {
       "name": "EC Wrocław chimney",
       "kind": "landmark",
-      "lat": 51.123663,
-      "lon": 17.024626,
-      "h": 301.9,
-      "src": "Kogeneracja / PGE EC Wrocław, tallest chimney: OSM way 301417638 (height 186 m) + ground 115.9 m (GUGiK NMT). Top light not yet confirmed by camera (2026-10-11 night: a blinking light at az 90.3 el ~3.9 is something else, likely a closer crane)"
+      "lat": 51.123695,
+      "lon": 17.024631,
+      "h": 296.5,
+      "src": "PGE EC Wrocław, the tall chimney (the lower one next to it carries the steam plume): position from the user, top 296.5 m ASL = LiDAR surface model peak (GUGiK NMPT 2024, sheet M-33-35-C-a-3-1), ground 116 m -> ~180 m tall (OSM way 301417638 says 186). 2026-10-13 09 UTC: top seen at el 1.60 with the tilt model = geometric 1.60."
     },
     {
       "name": "GSM mast Alba",
