@@ -26,7 +26,7 @@
     "_pitch_note": "2026-10-13: Sky Tower building top (212 m, 332.5 ASL) exact in a daylight frame (rotator 91, Sky Tower at the right edge) together with the EC chimney top (-1.308 with the grid-fixed tilt fit); was -1.28 from 2026-10-11. The red light used on 2026-10-11 night was the CZK tower (122.41 deg, 2.2 km), not Sky Tower.",
     "roll": 1.24,
     "az_offset": 0.0,
-    "_az_offset_note": "2026-10-11 09:25 UTC: rotator recalibrated in K3NG (\\A122 + \\Q while pointing at Sky Tower, true 121.95). Before: rotctld read ~18.8 deg low.",
+    "_az_offset_note": "2026-10-11 09:25 UTC: rotator recalibrated in K3NG (\\A122 + \\Q while pointing at Sky Tower, true 121.95). Before: rotctld read ~18.8 deg low. 2026-10-15 13:35 UTC: recalibrated in the SQ6EMM rotor firmware 1.7 with CW7,122.4 (it keeps fractions): at rotator 122.0 Sky Tower and the CZK tower both stood 0.41 deg left of their markers (clean frame, 34.9 px/deg); afterwards both markers on their objects within 0.05 deg.",
     "az_delay": 0.48,
     "boresight": [
       0.5,
