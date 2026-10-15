@@ -195,7 +195,12 @@ async def overlap_loop() -> None:
                 await writer.drain()
                 raw, deadline = None, time.monotonic() + 2
                 while raw is None:   # rotctld frames the reply as "AR-10.0\r\n\n\n": blank lines are skipped
-                    line = (await asyncio.wait_for(reader.readline(), max(0.05, deadline - time.monotonic()))).decode(errors="replace").strip()
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("no AR reply")
+                    b = await asyncio.wait_for(reader.readline(), max(0.05, deadline - time.monotonic()))
+                    if not b:                # EOF (rotctld restarted): readline returns at once - never spin on it
+                        raise ConnectionError("rotctld closed the connection")
+                    line = b.decode(errors="replace").strip()
                     if line.startswith("AR"):
                         raw = float(line[2:])
                     elif line.startswith("RPRT -"):
@@ -206,12 +211,13 @@ async def overlap_loop() -> None:
                 continue
             await asyncio.sleep(0.5)
         except Exception as e:
-            print(f"overlap query (w AR) failed: {e!r}; controller without AR? next try in 60 s")
+            lost = isinstance(e, (ConnectionError, OSError)) and not isinstance(e, TimeoutError)
+            print(f"overlap query (w AR) failed: {e!r}; " + ("reconnecting in 5 s" if lost else "controller without AR? next try in 60 s"))
             await set_overlap(None, None)
             if writer:
                 writer.close()
             reader = writer = None
-            await asyncio.sleep(60)
+            await asyncio.sleep(5 if lost else 60)
 
 
 def pick_fields(doc: dict) -> dict:
