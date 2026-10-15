@@ -151,6 +151,7 @@ async def rotator_loop() -> None:
                     az = float((await asyncio.wait_for(reader.readline(), 3)).strip())
                     el = float((await asyncio.wait_for(reader.readline(), 3)).strip())
                 state.update(az=round(az % 360, 1), el=round(el, 1), rot_ok=True)
+                track_turn(state["az"])
                 cur = (state["az"], state["el"])
                 if cur != last:
                     last = cur
@@ -166,18 +167,46 @@ async def rotator_loop() -> None:
                 writer.close()
 
 
-async def set_overlap(overlap, raw) -> None:
-    changed = state["overlap"] != overlap
-    state["overlap"], state["az_raw"] = overlap, raw
-    if changed:
+turn = {"n": None, "last_az": None, "ar_ok": False}   # which turn: raw = az + 360 * n (n = -1, 0, +1)
+
+
+def apply_turn(az) -> bool:
+    """state overlap / az_raw from the turn; True if the overlap changed. Shown only once the controller answered AR
+    (a 0..360 controller wobbling around north must not look like it changed turns)."""
+    n = turn["n"] if turn["ar_ok"] else None
+    old = state["overlap"]
+    state["overlap"] = {-1: "ccw", 1: "cw"}.get(n) if n is not None else None
+    state["az_raw"] = round(az + 360 * n, 1) if n is not None and az is not None else None
+    return state["overlap"] != old
+
+
+def track_turn(az: float) -> None:
+    """Follows the turn with every 'p' reading (10 per second): one up or down each time the azimuth crosses north.
+    Away from north the rotator is always on the normal turn. The AR query near north (overlap_loop) confirms it, or
+    sets it when it is not known (start, reconnect). So the overlap tag changes in the same poll as the azimuth."""
+    n, last = turn["n"], turn["last_az"]
+    if n is not None and last is not None:
+        if last > 270 and az < 90:
+            n += 1                                   # clockwise across north
+        elif last < 90 and az > 270:
+            n -= 1                                   # counter-clockwise across north
+    if min(az, 360 - az) > ROT_OVERLAP_DEG:
+        n = 0
+    turn["n"], turn["last_az"] = n, az
+    apply_turn(az)                                   # rotator_loop broadcasts: the azimuth changed too
+
+
+async def set_turn(n) -> None:
+    turn["n"] = n
+    if apply_turn(state["az"]):
         await broadcast(snapshot())
 
 
 async def overlap_loop() -> None:
-    """Which turn the rotator is on: position from 'p' as usual (standard Hamlib), the raw position from the SQ6EMM
-    firmware's 'w AR' on a separate rotctld connection. Asked only near north, because only there can the rotator be
-    in the overlap (raw -30..0 or 360..390); elsewhere it is on the normal turn. A controller without AR (no reply,
-    or an error) just leaves the overlap unknown; it is tried again after a minute."""
+    """Which turn the rotator is on. Position from 'p' as usual (standard Hamlib); track_turn follows the turn across
+    north with every reading. Near north - the only place the rotator can be in the overlap (raw -30..0 or 360..390) -
+    the SQ6EMM firmware's raw position ('w AR', separate rotctld connection) confirms it once per ROT_RAW_S. A
+    controller without AR (no reply, or an error) leaves the overlap unknown; it is tried again after a minute."""
     if not ROT_HOST or ROT_DECIMAL or ROT_OVERLAP_DEG <= 0:
         return
     reader = writer = None
@@ -185,10 +214,9 @@ async def overlap_loop() -> None:
         az = state["az"]
         try:
             if not state["rot_ok"] or az is None:
-                await set_overlap(None, None)
-            elif min(az, 360 - az) > ROT_OVERLAP_DEG:
-                await set_overlap(None, az)
-            else:
+                turn["last_az"] = None
+                await set_turn(None)
+            elif min(az, 360 - az) <= ROT_OVERLAP_DEG:
                 if writer is None:
                     reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
                 writer.write(b"w AR\n")
@@ -205,15 +233,17 @@ async def overlap_loop() -> None:
                         raw = float(line[2:])
                     elif line.startswith("RPRT -"):
                         raise ValueError(line)
-                turn = round((raw - state["az"]) / 360)   # tolerates 'p' and AR read a moment apart
-                await set_overlap({-1: "ccw", 1: "cw"}.get(turn), raw)
+                turn["ar_ok"] = True
+                await set_turn(round((raw - state["az"]) / 360))   # tolerates 'p' and AR read a moment apart
                 await asyncio.sleep(ROT_RAW_S)
                 continue
             await asyncio.sleep(0.5)
         except Exception as e:
             lost = isinstance(e, (ConnectionError, OSError)) and not isinstance(e, TimeoutError)
             print(f"overlap query (w AR) failed: {e!r}; " + ("reconnecting in 5 s" if lost else "controller without AR? next try in 60 s"))
-            await set_overlap(None, None)
+            if not lost:
+                turn["ar_ok"] = False
+            await set_turn(None)
             if writer:
                 writer.close()
             reader = writer = None
