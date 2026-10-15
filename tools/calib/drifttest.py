@@ -1,23 +1,6 @@
 """Drift / start-stop test: many short moves between 100 and 200 deg; per move log target, final, overshoot, coasting."""
-import json, random, socket, sys, time
-s = socket.create_connection(("192.168.14.199", 4533), timeout=10); f = s.makefile("rwb")
-def q(c, want=None, wait=1.5):
-    f.write((c + "\n").encode()); f.flush(); s.settimeout(wait); out = []
-    try:
-        while True:
-            l = f.readline().decode()
-            if not l: break
-            out.append(l.strip())
-            if (want and want in l) or (not want and l.strip()): break
-    except Exception: pass
-    s.settimeout(10); return " ".join(x for x in out if x)
-def az():
-    for _ in range(10):
-        r = q("w \\?AZ", "OKAZ")
-        if "OKAZ" in r: return float(r.split("OKAZ")[1])
-        time.sleep(0.1)
-def pd():
-    r = q("w \\?PD", "OKPD"); return r.split("OKPD")[1].strip() if "OKPD" in r else r
+import json, random, sys, time
+from rot import q, az, pd
 rnd = random.Random(42)
 targets = [100]
 pos = 100

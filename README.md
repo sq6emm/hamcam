@@ -147,7 +147,8 @@ and immediately after the station changes) · Sun, Moon, planets · satellite pa
 
 Lens model and roll (`tools/calib/distortion.py`), pitch / `az_offset` (a known landmark, here Sky Tower),
 `az_delay` and `video_lag_s` (browser timing test), mast tilt (`tools/tilt/`). The older one-off scripts in
-`tools/calib/` (drift/speed tests, encoder monitor) still contain this site's addresses. Tools that read the
+`tools/calib/` (drift/speed tests, encoder monitor) still contain this site's addresses; the rotator ones talk to the
+SQ6EMM Easycomm III controller firmware through `tools/calib/rot.py` (rotctld `-m 204`). Tools that read the
 camera model mount `/etc/docker-compose/hamcam/config` as `/www`.
 
 ## License

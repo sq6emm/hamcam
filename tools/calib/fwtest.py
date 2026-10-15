@@ -1,26 +1,6 @@
-"""Firmware function test: log \\?AZ (decimal) while moving; optional explicit STOP after N seconds."""
-import socket, sys, time
-s = socket.create_connection(("192.168.14.199", 4533), timeout=10); f = s.makefile("rwb")
-def q(c, want=None, wait=1.5):
-    # rotctld raw replies span several lines: collect until the expected token (or a short timeout)
-    f.write((c + "\n").encode()); f.flush()
-    s.settimeout(wait); out = []
-    try:
-        while True:
-            l = f.readline().decode()
-            if not l: break
-            out.append(l.strip())
-            if want and want in l: break
-            if not want and l.strip(): break
-    except Exception:
-        pass
-    s.settimeout(10)
-    return " ".join(x for x in out if x)
-def az():
-    for _ in range(10):
-        r = q("w \\?AZ", "OKAZ")
-        if "OKAZ" in r: return float(r.split("OKAZ")[1])
-        time.sleep(0.1)
+"""Firmware function test: log AR (raw, 0.5 deg) while moving; optional explicit STOP after N seconds."""
+import sys, time
+from rot import q, az, pd
 def run(target, stop_after=None, tmax=90):
     t0 = time.time(); log = []; print(f"-> P {target}" + (f", S after {stop_after}s" if stop_after else ""), q(f"P {target} 0", "RPRT"))
     stopped = False; last = None; still = time.time()
@@ -47,4 +27,4 @@ for arg in sys.argv[1:]:
     if ":" in arg: tg, sa = arg.split(":"); run(float(tg), float(sa))
     else: run(float(arg))
     time.sleep(2)
-print("PD:", q("w \\?PD", "OKPD"))
+print("PD:", pd())
