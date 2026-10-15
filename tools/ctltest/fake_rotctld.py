@@ -1,29 +1,39 @@
-"""Fake rotctld for tests: p / P az el / S / anything else -> RPRT 0; simulated movement 10 deg/s; logs every command.
-Env: PDELAY = seconds before answering P (provokes races), ELMAX = refuse P with el above it (RPRT -8, like an az-only model)."""
+"""Fake rotctld for tests: p / P az el / S / w AR / anything else -> RPRT 0; simulated movement 10 deg/s; logs every command.
+Keeps a raw position in -30..390 like the SQ6EMM firmware (a heading goes to the closest turn) and answers 'w AR' with
+rotctld's framing ("AR-10.0\\r\\n\\n\\n"). Env: PDELAY = seconds before answering P (provokes races), ELMAX = refuse P with
+el above it (RPRT -8, like an az-only model), RAW0 = start position (raw, default 122), NOAR=1 = controller without AR
+(rotctld then sends nothing)."""
 import asyncio, os, time
 PDELAY = float(os.environ.get("PDELAY", "0")); ELMAX = float(os.environ.get("ELMAX", "999"))
-state = {"az": 122.0, "el": 0.0, "target": None}
+NOAR = os.environ.get("NOAR") == "1"; LO, HI = -30.0, 390.0
+state = {"raw": float(os.environ.get("RAW0", "122")), "el": 0.0, "target": None}
 def log(*a): print(f"{time.strftime('%H:%M:%S')}", *a, flush=True)
+def closest(h, raw):
+    cands = [c for c in (h - 360, h, h + 360) if LO <= c <= HI]
+    return min(cands, key=lambda c: abs(c - raw))
 async def mover():
     while True:
         await asyncio.sleep(0.25)
         t = state["target"]
         if t is None: continue
-        d = ((t - state["az"] + 540) % 360) - 180
-        if abs(d) <= 2.5: state["az"] = t; state["target"] = None; log(f"reached {t:.1f}")
-        else: state["az"] = (state["az"] + (2.5 if d > 0 else -2.5)) % 360
+        d = t - state["raw"]
+        if abs(d) <= 2.5: state["raw"] = t; state["target"] = None; log(f"reached raw {t:.1f}")
+        else: state["raw"] += 2.5 if d > 0 else -2.5
 async def handle(r, w):
     while True:
         line = await r.readline()
         if not line: break
         c = line.decode().strip()
-        if c == "p": w.write(f"{round(state['az'])}.00\n{state['el']:.2f}\n".encode())
+        if c == "p": w.write(f"{round(state['raw'] % 360)}.00\n{state['el']:.2f}\n".encode())
+        elif c == "w AR":
+            if not NOAR: w.write(f"AR{state['raw']:.1f}\r\n\n\n".encode())
         elif c.startswith("P "):
             _, az, el = c.split()
             if float(el) > ELMAX: log(f"CMD P az={az} el={el} REFUSED (el > {ELMAX})"); w.write(b"RPRT -8\n")
             else:
                 log(f"CMD P az={az} el={el} received"); await asyncio.sleep(PDELAY)
-                state["target"] = float(az) % 360; state["el"] = float(el); log(f"CMD P az={az} el={el} executed"); w.write(b"RPRT 0\n")
+                state["target"] = closest(float(az) % 360, state["raw"]); state["el"] = float(el)
+                log(f"CMD P az={az} el={el} executed -> raw {state['target']:.1f}"); w.write(b"RPRT 0\n")
         elif c == "S": state["target"] = None; log("CMD S (stop)"); w.write(b"RPRT 0\n")
         else: w.write(b"RPRT 0\n")
         await w.drain()

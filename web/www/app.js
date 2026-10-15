@@ -1010,6 +1010,22 @@ function showWeather(wx) {
   t.setAttribute('x', W - 14); t.setAttribute('y', H - 14 - (lines.length - 1) * 34);
 }
 
+// rotator on its overlap turn (raw -30..0 or 360..390, from the controller's raw position): cable wound one turn further
+let shownOvl;
+function showOverlap(m) {
+  const o = m.rot_ok ? m.overlap : null;
+  const key = o ? `${o} ${m.az_raw}` : '';
+  if (key === shownOvl) return;
+  shownOvl = key;
+  const t = $('ovl');
+  t.replaceChildren();
+  if (!o) return;
+  t.textContent = o === 'ccw' ? '↺ overlap' : '↻ overlap';
+  const ti = document.createElementNS(SVG, 'title');
+  ti.textContent = `rotator on the ${o === 'ccw' ? 'counter-clockwise' : 'clockwise'} overlap turn (raw ${m.az_raw}°)`;
+  t.appendChild(ti);
+}
+
 function connectTelemetry() {
   const ws = new WebSocket(new URL('telemetry', location.href).href.replace(/^http/, 'ws'));
   ws.onmessage = ev => {
@@ -1028,6 +1044,7 @@ function connectTelemetry() {
         while (azHist.length > 2 && azHist[1][0] < m.t * 1000 - 10000) azHist.shift();
       }
       showWeather(m.wx);
+      showOverlap(m);
     }
   };
   ws.onopen = () => { teleOk = true; ws.send(JSON.stringify({ type: 'ping', c: Date.now() })); };

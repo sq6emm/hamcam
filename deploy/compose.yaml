@@ -34,6 +34,7 @@ services:
     environment:
       ROTCTLD_HOST: ${ROTCTLD_HOST:-}    # empty -> simulated azimuth sweep
       ROTCTLD_PORT: ${ROTCTLD_PORT:-4533}
+      ROT_OVERLAP_DEG: ${ROT_OVERLAP_DEG:-30}   # overlap turn via raw 'w AR' near north (SQ6EMM controller); 0 = off
       WEATHER_URL: ${WEATHER_URL:-}
       WEATHER_FIELDS: ${WEATHER_FIELDS:-}
       OBJECTS_FILE: /config/objects.json # station location comes from here (single source, same file as the page)

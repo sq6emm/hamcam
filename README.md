@@ -85,6 +85,7 @@ re-reads it on its next refresh).
 | `WEBRTC_CANDIDATE_LAN` | go2rtc | `host:port` LAN viewers connect to for WebRTC media (e.g. `192.168.12.12:8556`) |
 | `WEBRTC_CANDIDATE_WAN` | go2rtc | public address for remote viewers: `stun:8556` (public IP found via STUN, also with a dynamic IP) or `IP:8556`. Forward 8556 UDP **and** TCP on the firewall to this host; if remote viewers fall back to MSE, check the forward first. |
 | `ROTCTLD_HOST`, `ROTCTLD_PORT` | telemetry, tools | Hamlib rotctld; empty host = simulated azimuth sweep |
+| `ROT_OVERLAP_DEG`, `ROT_RAW_S` | telemetry | overlap turn (cable wound beyond one turn) for the SQ6EMM Easycomm III controller: its raw position (`w AR`) is read on a second rotctld connection every `ROT_RAW_S` s (default 1), only within `ROT_OVERLAP_DEG` of north (default 30, for the range −30..390; 0 = off). The page shows ↺/↻ overlap next to the azimuth. Controllers without `AR` just show nothing |
 | `WEATHER_URL`, `WEATHER_FIELDS` | telemetry | weather JSON endpoint (API keys stay server-side) and `name=dotted.path,...` fields shown |
 | `ADSB_URL` | nginx | `aircraft.json` of the ADS-B receiver (readsb / tar1090 / ultrafeeder) |
 | `BEACON_BAND`, `BEACON_MAX_KM`, `BEACON_KEEP_DAYS` | telemetry | IARU beacon list: band (`23cm`), radius from the station (900), drop after N days unreported (90) |

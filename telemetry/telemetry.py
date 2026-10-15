@@ -4,6 +4,9 @@ Env:
   ROTCTLD_HOST, ROTCTLD_PORT   rotctld address; empty host -> simulated azimuth (for testing)
   ROT_POLL_S                   rotator poll interval (default 0.1 s)
   ROT_DECIMAL                  1 = read K3NG \\?AZ (half degrees) via rotctld raw command (slow: ~0.9 s per query), 0 = standard 'p' (default)
+  ROT_OVERLAP_DEG              which turn the rotator is on (SQ6EMM Easycomm III firmware, raw 'w AR'): asked only within this
+                               many degrees of north, where the overlap can be (default 30 = range -30..390; 0 = off)
+  ROT_RAW_S                    interval of that query near north (default 1 s)
   WEATHER_URL, WEATHER_POLL_S  optional JSON endpoint (URL incl. API keys stays server-side)
   WEATHER_FIELDS               name=dotted.path,... picked from the JSON; only these reach the page.
                                Ecowitt-style leaves ({"value": "12.2", "unit": "C"}) are unpacked.
@@ -38,6 +41,8 @@ ROT_HOST = os.environ.get("ROTCTLD_HOST", "")
 ROT_PORT = int(os.environ.get("ROTCTLD_PORT", "4533"))
 ROT_POLL = float(os.environ.get("ROT_POLL_S", "0.1"))
 ROT_DECIMAL = os.environ.get("ROT_DECIMAL", "0") == "1"   # K3NG \\?AZ via rotctld raw command: half degrees instead of whole
+ROT_OVERLAP_DEG = float(os.environ.get("ROT_OVERLAP_DEG", "30"))
+ROT_RAW_S = float(os.environ.get("ROT_RAW_S", "1"))
 WX_URL = os.environ.get("WEATHER_URL", "")
 WX_POLL = float(os.environ.get("WEATHER_POLL_S", "60"))
 WX_FIELDS = [f.split("=", 1) for f in os.environ.get("WEATHER_FIELDS", "").split(",") if "=" in f]
@@ -91,7 +96,8 @@ def station() -> dict:
     return {"lat": float(st["lat"]), "lon": float(st["lon"]), "h": float(st.get("h", 0))}
 
 state = {"az": None, "el": None, "rot_ok": False, "rot_src": "rotctld" if ROT_HOST else "simulated",
-         "wx": None, "wx_ts": None, "target_az": None, "target_el": None, "tracking": None}
+         "wx": None, "wx_ts": None, "target_az": None, "target_el": None, "tracking": None,
+         "az_raw": None, "overlap": None}       # overlap: None (normal turn or unknown), "ccw" (raw < 0), "cw" (raw > 360)
 clients: set[web.WebSocketResponse] = set()
 
 
@@ -158,6 +164,54 @@ async def rotator_loop() -> None:
         finally:
             if writer:
                 writer.close()
+
+
+async def set_overlap(overlap, raw) -> None:
+    changed = state["overlap"] != overlap
+    state["overlap"], state["az_raw"] = overlap, raw
+    if changed:
+        await broadcast(snapshot())
+
+
+async def overlap_loop() -> None:
+    """Which turn the rotator is on: position from 'p' as usual (standard Hamlib), the raw position from the SQ6EMM
+    firmware's 'w AR' on a separate rotctld connection. Asked only near north, because only there can the rotator be
+    in the overlap (raw -30..0 or 360..390); elsewhere it is on the normal turn. A controller without AR (no reply,
+    or an error) just leaves the overlap unknown; it is tried again after a minute."""
+    if not ROT_HOST or ROT_DECIMAL or ROT_OVERLAP_DEG <= 0:
+        return
+    reader = writer = None
+    while True:
+        az = state["az"]
+        try:
+            if not state["rot_ok"] or az is None:
+                await set_overlap(None, None)
+            elif min(az, 360 - az) > ROT_OVERLAP_DEG:
+                await set_overlap(None, az)
+            else:
+                if writer is None:
+                    reader, writer = await asyncio.wait_for(asyncio.open_connection(ROT_HOST, ROT_PORT), 5)
+                writer.write(b"w AR\n")
+                await writer.drain()
+                raw, deadline = None, time.monotonic() + 2
+                while raw is None:   # rotctld frames the reply as "AR-10.0\r\n\n\n": blank lines are skipped
+                    line = (await asyncio.wait_for(reader.readline(), max(0.05, deadline - time.monotonic()))).decode(errors="replace").strip()
+                    if line.startswith("AR"):
+                        raw = float(line[2:])
+                    elif line.startswith("RPRT -"):
+                        raise ValueError(line)
+                turn = round((raw - state["az"]) / 360)   # tolerates 'p' and AR read a moment apart
+                await set_overlap({-1: "ccw", 1: "cw"}.get(turn), raw)
+                await asyncio.sleep(ROT_RAW_S)
+                continue
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"overlap query (w AR) failed: {e!r}; controller without AR? next try in 60 s")
+            await set_overlap(None, None)
+            if writer:
+                writer.close()
+            reader = writer = None
+            await asyncio.sleep(60)
 
 
 def pick_fields(doc: dict) -> dict:
@@ -664,7 +718,7 @@ async def ws_handler(request: web.Request) -> web.WebSocketResponse:
 
 async def on_startup(app: web.Application) -> None:
     print("rotator control allowed for: " + (", ".join(map(str, CONTROL_ALLOW)) or "nobody (CONTROL_ALLOW empty)"), flush=True)
-    for coro in (rotator_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop(), control_watchdog(), scatter_loop()):
+    for coro in (rotator_loop(), overlap_loop(), weather_loop(), heartbeat_loop(), beacon_loop(), tle_loop(), summit_loop(), control_watchdog(), scatter_loop()):
         asyncio.create_task(coro)
 
 
