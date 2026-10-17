@@ -266,9 +266,11 @@ function drawMarks(az) {
         vlabel(g, p.x + 16, p.y <= 110 ? topY(p.x + 16) : H - 110, `${txt} ${p.y <= 110 ? '↑' : '↓'}`, it.color, p.y <= 110 ? 'end' : 'start');
       }
     } else {
-      const m = el('path', { d: `M${p.x} ${y - 10} L${p.x + 10} ${y} L${p.x} ${y + 10} L${p.x - 10} ${y} Z`, fill: 'none', 'stroke-width': 3 }, g);
+      // diamond exactly 1 deg tip to tip (0.5 deg each side of the object top, which is its centre)
+      const r = camera.degToPx(0.5);
+      const m = el('path', { d: `M${p.x} ${y - r} L${p.x + r} ${y} L${p.x} ${y + r} L${p.x - r} ${y} Z`, fill: 'none', 'stroke-width': 3 }, g);
       m.style.stroke = it.color;
-      if (inY) el('line', { x1: p.x, y1: y - 14, x2: p.x, y2: y - 46, 'stroke-width': 2 }, g).style.stroke = it.color;
+      if (inY) el('line', { x1: p.x, y1: y - r - 4, x2: p.x, y2: y - r - 36, 'stroke-width': 2 }, g).style.stroke = it.color;
       const lx = Math.abs(p.x - bx) < 36 ? bx - 36 : p.x;              // keep clear of the elevation scale
       vlabel(g, lx, y - 54, `${it.name} ${it.az.toFixed(1)}° ${fmtKm(it.dist)}${inY ? '' : (p.y <= 110 ? ' ↑' : ' ↓')}`, it.color);
     }

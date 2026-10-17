@@ -24,10 +24,10 @@
     "_lens_note": "2026-10-11 night: lens distortion fitted from 4700 SIFT matches between frames at rotator 97..142 deg (tools/calib/distortion.py, NPP=2: optical centre free, rms 0.049 deg; rectilinear model was 0.59 deg and put objects 3.4 deg too far out at 30 deg off-centre). Roll fitted +1.26.",
     "pitch": 0.78,
     "_pitch_note": "2026-10-17 after the mast remount: Sky Tower top and the CZK tower top both within 0.013 deg in elevation (rotator 126 before CW7); EC chimney top +0.18. History: -1.308 (2026-10-13, Sky Tower + EC chimney), -1.28 (2026-10-11).",
-    "roll": 0.15,
+    "roll": -0.33,
     "az_offset": 0.0,
     "_az_offset_note": "2026-10-17 13:05 UTC after the mast remount: the whole mast had turned (camera 4.5 deg left of the rotator reading). Rotator recalibrated in the SQ6EMM firmware 1.8 with CW7,122.2 at Sky Tower and the CZK tower (both 0.77 deg left of their markers with the provisional model). Earlier: CW7,122.4 (2026-10-15), K3NG \\A122 (2026-10-11).",
-    "az_delay": 0.48,
+    "az_delay": 0.4,
     "boresight": [
       0.5,
       0.265
@@ -38,7 +38,8 @@
       "ref_az": 121.95,
       "_note": "2026-10-17 after the mast remount: lean now 0.54 deg (objects highest toward az 72); measured from two full turns (13 frames each) SIFT-matched to the 2026-10-12 panorama (elevation change fits a sine with rms 0.08 deg), checked against LiDAR roof edges (61 sectors, residual within +-0.4) and Sky Tower / CZK / EC chimney. Before: A 1.299 B 4.065 (4.3 deg lean). ?notilt disables."
     },
-    "_roll_note": "2026-10-17: camera levelled on the roof by the user with a live guide; roll from vertical building edges +0.02..+0.24 (right side up). Before the remount the 4.3 deg mast lean rolled the picture by up to +-4 deg with azimuth (not modelled); the remaining lean (0.5 deg) gives at most +-0.5 deg."
+    "_roll_note": "2026-10-17: roll relative to the rotation axis (the page models the mast lean in elevation only): -0.33 from SIFT matches between neighbouring frames of two full turns (left/right halves then agree within +-0.1 deg; with +0.15 the right side read 0.25 high). Vertical building edges give +0.13 at az 126 = this plus the roll from the 0.54 deg lean. The camera was levelled on the roof by the user (was +3.8). Before the remount the 4.3 deg lean rolled the picture by up to +-4 deg with azimuth (not modelled).",
+    "_az_delay_note": "2026-10-17: 0.48 -> 0.40. Since firmware 1.5 the controller reports the interpolated live position, so the overlay ran 0.07-0.09 s behind the video during moves (measured in the browser over the LAN, tools/browser/lag.mjs, CW and CCW stops and CCW start); the first ~0.5 s of a start still lags (no speed estimate before the first edges)."
   },
   "objects": [
     {
@@ -62,16 +63,16 @@
       "kind": "landmark",
       "lat": 51.125923,
       "lon": 16.947446,
-      "h": 141.3,
-      "src": "rooftop base-station mast (user's position, 2026-10-12/13), UKE: P4 sp. z o.o. 'Majakowskiego 30-40' (registered ~65 m away, coordinates rounded). Top 141.3 m ASL = LiDAR NMPT 2024 peak 4 m from the point (roof ~136); camera 2026-10-13 at rotator 73: el 1.32 -> 142.0"
+      "h": 142.8,
+      "src": "rooftop base-station mast (user's position, 2026-10-12/13), UKE: P4 sp. z o.o. 'Majakowskiego 30-40' (registered ~65 m away, coordinates rounded). Top 141.3 m ASL = LiDAR NMPT 2024 peak 4 m from the point (roof ~136); camera 2026-10-13 at rotator 73: el 1.32 -> 142.0 2026-10-17: top measured by the camera after the remount (+0.22 deg at 404 m): h 141.3 -> 142.8."
     },
     {
       "name": "T-Mobile mast Metalowców",
       "kind": "landmark",
       "lat": 51.129637,
       "lon": 16.953767,
-      "h": 154.3,
-      "src": "base-station mast (user's position, 2026-10-13), UKE: T-Mobile Polska 'Metalowców 25', IdStacji 46038 (registered 13 m away). Not in the LiDAR surface model (thin); top 154.3 m ASL measured by the camera 2026-10-13 at rotator 57 (el 1.25 at 983 m), ground 118.5 -> ~36 m tall"
+      "h": 162.0,
+      "src": "base-station mast (user's position, 2026-10-13), UKE: T-Mobile Polska 'Metalowców 25', IdStacji 46038 (registered 13 m away). Not in the LiDAR surface model (thin); top 154.3 m ASL measured by the camera 2026-10-13 at rotator 57 (el 1.25 at 983 m), ground 118.5 -> ~36 m tall 2026-10-17: top measured by the camera after the remount (+0.42 deg at 983 m): h 154.3 -> 162.0."
     },
     {
       "name": "Ślęża RTCN",
@@ -94,8 +95,8 @@
       "kind": "landmark",
       "lat": 51.124501,
       "lon": 16.937993,
-      "h": 153.1,
-      "src": "user, Google Maps 2026-10-11 (= OSM node 6142939720); ground 116.7 m (GUGiK NMT); top measured by camera: 153.1 m ASL (~36 m above ground)"
+      "h": 157.5,
+      "src": "user, Google Maps 2026-10-11 (= OSM node 6142939720); ground 116.7 m (GUGiK NMT); top measured by camera: 153.1 m ASL (~36 m above ground) 2026-10-17: top measured by the camera after the remount (+0.90 deg at 277 m (top of the antenna box; thin spikes above)): h 153.1 -> 157.5."
     },
     {
       "name": "SP6GWB",
