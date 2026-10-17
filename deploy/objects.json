@@ -22,22 +22,23 @@
       84.0
     ],
     "_lens_note": "2026-10-11 night: lens distortion fitted from 4700 SIFT matches between frames at rotator 97..142 deg (tools/calib/distortion.py, NPP=2: optical centre free, rms 0.049 deg; rectilinear model was 0.59 deg and put objects 3.4 deg too far out at 30 deg off-centre). Roll fitted +1.26.",
-    "pitch": -1.308,
-    "_pitch_note": "2026-10-13: Sky Tower building top (212 m, 332.5 ASL) exact in a daylight frame (rotator 91, Sky Tower at the right edge) together with the EC chimney top (-1.308 with the grid-fixed tilt fit); was -1.28 from 2026-10-11. The red light used on 2026-10-11 night was the CZK tower (122.41 deg, 2.2 km), not Sky Tower.",
-    "roll": 1.24,
+    "pitch": 0.78,
+    "_pitch_note": "2026-10-17 after the mast remount: Sky Tower top and the CZK tower top both within 0.013 deg in elevation (rotator 126 before CW7); EC chimney top +0.18. History: -1.308 (2026-10-13, Sky Tower + EC chimney), -1.28 (2026-10-11).",
+    "roll": 0.15,
     "az_offset": 0.0,
-    "_az_offset_note": "2026-10-11 09:25 UTC: rotator recalibrated in K3NG (\\A122 + \\Q while pointing at Sky Tower, true 121.95). Before: rotctld read ~18.8 deg low. 2026-10-15 13:35 UTC: recalibrated in the SQ6EMM rotor firmware 1.7 with CW7,122.4 (it keeps fractions): at rotator 122.0 Sky Tower and the CZK tower both stood 0.41 deg left of their markers (clean frame, 34.9 px/deg); afterwards both markers on their objects within 0.05 deg.",
+    "_az_offset_note": "2026-10-17 13:05 UTC after the mast remount: the whole mast had turned (camera 4.5 deg left of the rotator reading). Rotator recalibrated in the SQ6EMM firmware 1.8 with CW7,122.2 at Sky Tower and the CZK tower (both 0.77 deg left of their markers with the provisional model). Earlier: CW7,122.4 (2026-10-15), K3NG \\A122 (2026-10-11).",
     "az_delay": 0.48,
     "boresight": [
       0.5,
       0.265
     ],
     "tilt": {
-      "A": 1.299,
-      "B": 4.065,
+      "A": 0.509,
+      "B": 0.166,
       "ref_az": 121.95,
-      "_note": "2026-10-12 noon roof-edge fit (tools/tilt, rerun 2026-10-13 with the PL-1992 grid convergence fixed: 30 of 34 sectors conf>6, free fit rms 0.185), constrained by EC chimney top (LiDAR 296.5) vs Sky Tower top (332.5) seen in one frame 2026-10-13 09 UTC: rms 0.24, both exact with pitch -1.308. North (about 300-75) has no roof edges = extrapolated. History: A 1.25 B 3.944 -> 1.313/4.061 -> now. ?notilt disables."
-    }
+      "_note": "2026-10-17 after the mast remount: lean now 0.54 deg (objects highest toward az 72); measured from two full turns (13 frames each) SIFT-matched to the 2026-10-12 panorama (elevation change fits a sine with rms 0.08 deg), checked against LiDAR roof edges (61 sectors, residual within +-0.4) and Sky Tower / CZK / EC chimney. Before: A 1.299 B 4.065 (4.3 deg lean). ?notilt disables."
+    },
+    "_roll_note": "2026-10-17: camera levelled on the roof by the user with a live guide; roll from vertical building edges +0.02..+0.24 (right side up). Before the remount the 4.3 deg mast lean rolled the picture by up to +-4 deg with azimuth (not modelled); the remaining lean (0.5 deg) gives at most +-0.5 deg."
   },
   "objects": [
     {
